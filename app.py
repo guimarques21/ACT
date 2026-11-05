@@ -203,7 +203,7 @@ def off_simular():
     token = d.get("token")
     g = OFF.get(token) if isinstance(token, str) else None
     linha, tat = d.get("linha", []), d.get("tatica")
-    if not g or type(tat) is not int or tat not in (1, 2, 3) or not isinstance(linha, list) or any(type(i) is not int for i in linha) or sorted(linha) != sorted(g["picks"]): return jsonify(erro="Dados inválidos."), 400
+    if not g or type(tat) is not int or tat not in (1, 2, 3, 4) or not isinstance(linha, list) or any(type(i) is not int for i in linha) or sorted(linha) != sorted(g["picks"]): return jsonify(erro="Dados inválidos."), 400
     ef = me.montar([g["jog"][i] for i in linha], tat)
     tab, marc, jogos = me.simular_liga_offline(ef, tat, carregar_equipas())
     u = next(t for t in tab if t["equipa"] == "AC Travanca")
@@ -313,7 +313,7 @@ def on_formacao(d):
         if not r or r["fase"] != "tatica": return
         p = r["p"][sid]
         linha, tatica = d.get("linha", []), d.get("tatica")
-        if type(tatica) is not int or tatica not in (1, 2, 3) or not isinstance(linha, list) or any(type(i) is not int for i in linha) or sorted(linha) != sorted(p["picks"]): return
+        if type(tatica) is not int or tatica not in (1, 2, 3, 4) or not isinstance(linha, list) or any(type(i) is not int for i in linha) or sorted(linha) != sorted(p["picks"]): return
         funcoes = online_me.validar_funcoes(tatica, d.get("funcoes"))
         p["tat"], p["linha"], p["funcoes"] = tatica, linha, funcoes
         if all(x["tat"] for x in r["p"].values()):

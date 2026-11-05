@@ -20,17 +20,19 @@ W = {
  "M3": {"def": .10, "dri": .30, "fis": .10, "pas": .35, "vel": .10, "rem": .05},
  "A":  {"dri": .23, "rem": .28, "fis": .23, "pas": .10, "vel": .15, "def": .01},
 }
-# Ordem = nº das imagens 1..7
+# Ordem = nº das imagens 1..7 (Tática 4 = 3-2-1: GR, 2 defesas laterais, 1 defesa central, 2 médios, 1 avançado)
 FORM = {
  1: ["GR", "D", "D", "MC", "ML", "ML", "A"],
  2: ["GR", "DL", "DL", "DC", "MC", "A", "A"],
  3: ["GR", "D", "M3", "D", "M3", "A", "A"],
+ 4: ["GR", "DL", "DL", "DC", "M3", "M3", "A"],
 }
 # Posição (x 0=própria baliza..1=baliza adversária, y 0..1) lida das imagens
 COORD = {
  1: [(.09,.49),(.25,.67),(.25,.39),(.47,.50),(.47,.19),(.48,.83),(.69,.53)],
  2: [(.09,.49),(.33,.80),(.32,.22),(.27,.51),(.45,.50),(.62,.66),(.61,.34)],
  3: [(.09,.49),(.25,.65),(.42,.28),(.24,.40),(.42,.71),(.62,.64),(.61,.35)],
+ 4: [(.09,.49),(.33,.80),(.32,.22),(.27,.51),(.46,.30),(.46,.70),(.69,.50)],
 }
 def grupo(r): return {"G": "Guarda-redes", "D": "Defesa", "M": "Médio", "A": "Avançado"}[r[0]]
 
@@ -118,6 +120,6 @@ def match_engine_online(nA, nB, plA, plB, tA, tB, fnA=None, fnB=None):
 if __name__ == "__main__":   # demo narrada na consola
     mk = lambda n: [Jogador(f"{n}{i}", ["Guarda-redes"] if i == 0 else ["Defesa", "Médio", "Avançado"],
                     {"gr": random.randint(70, 90)} if i == 0 else {k: random.randint(60, 90) for k in KEYS}) for i in range(7)]
-    ev, st = match_engine_online("Azuis", "Amarelos", mk("A"), mk("B"), 1, 3)
+    ev, st = match_engine_online("Azuis", "Amarelos", mk("A"), mk("B"), 1, 4)
     for e in ev: print(f"{e['m']:02d}' {e['txt']}")
     print(_gerar_tabela_consola("Azuis", "Amarelos", st))

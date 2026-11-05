@@ -13,6 +13,8 @@ POSITION_LAYOUT = {
     2: ["GR", "DL", "DL", "DC", "MC", "AW", "AW"],
     # Os centrais ficam explicitamente nas posições numeradas 2 e 4.
     3: ["GR", "D", "MIX", "D", "MIX", "AW", "AW"],
+    # Tática 4 (3-2-1): GR, 2 defesas mais laterais (DL), 1 defesa central (DC), 2 médios (MIX) e 1 avançado (A)
+    4: ["GR", "DL", "DL", "DC", "MIX", "MIX", "A"],
 }
 
 OUTFIELD_ATTRIBUTES = (
@@ -115,12 +117,12 @@ ROLE_DEFINITIONS = {
         "intercept_bonus": 0.12, "duel_bonus": 2.2,
     },
 
-    # ---------- DEFESAS LATERAIS NA TÁTICA 2 · 3-1-2 (DL) ----------
+    # ---------- DEFESAS LATERAIS NAS TÁTICAS 2 · 3-1-2 E 4 · 3-2-1 (DL) ----------
     "dl_ala_completo": {
         "id": "dl_ala_completo",
         "nome": "Ala Completo",
         "curto": "Ala Completo",
-        "desc": "Faz o corredor inteiro no 3-1-2: dá largura máxima ao ataque, cruza e recupera a defender.",
+        "desc": "Faz o corredor inteiro no 3-1-2 e 3-2-1: dá largura máxima ao ataque, cruza e recupera a defender.",
         "atributos": "Velocidade, Aceleração, Resistência, Índice de Trabalho, Cruzamento, Desarme",
         "needs": {"velocidade": 5, "aceleracao": 5, "resistencia": 5, "trabalho": 4, "cruzamento": 4, "drible": 3, "desarme": 3},
         "advance": 0.095, "def_advance": 0.055, "width": 0.105,
@@ -132,7 +134,7 @@ ROLE_DEFINITIONS = {
         "id": "dl_defensivo",
         "nome": "Lateral Defensivo",
         "curto": "Lat. Defensivo",
-        "desc": "Fecha o flanco e mantém o trio defensivo compacto no 3-1-2, arriscando pouco na subida.",
+        "desc": "Fecha o flanco e mantém o trio defensivo compacto no 3-1-2 e 3-2-1, arriscando pouco na subida.",
         "atributos": "Desarme, Marcação, Posicionamento, Antecipação, Força, Concentração",
         "needs": {"desarme": 5, "marcacao": 5, "posicionamento": 5, "antecipacao": 4, "forca": 4, "concentracao": 4, "bravura": 3},
         "advance": 0.020, "def_advance": 0.080, "width": 0.035,
@@ -144,7 +146,7 @@ ROLE_DEFINITIONS = {
         "id": "dl_invertido",
         "nome": "Lateral Invertido (Interior)",
         "curto": "Lat. Invertido",
-        "desc": "Em posse fecha por dentro ao lado do MC para dar superioridade no meio e lançar passes de rutura.",
+        "desc": "Em posse fecha por dentro ao lado dos médios para dar superioridade no meio e lançar passes de rutura.",
         "atributos": "Passe, Visão de Jogo, Decisões, Primeiro Toque, Técnica, Antecipação",
         "needs": {"passe": 5, "visao": 5, "decisoes": 4, "primeiro_toque": 4, "tecnica": 4, "antecipacao": 3, "posicionamento": 3, "trabalho": 3},
         "advance": 0.068, "def_advance": 0.060, "width": -0.065,
@@ -156,7 +158,7 @@ ROLE_DEFINITIONS = {
         "id": "dl_ofensivo",
         "nome": "Ala Ofensivo Projetado",
         "curto": "Ala Ofensivo",
-        "desc": "Ataca constantemente a linha de fundo como um extremo extra no 3-1-2, procurando 1x1 e cruzamentos.",
+        "desc": "Ataca constantemente a linha de fundo como um extremo extra no 3-1-2 e 3-2-1, procurando 1x1 e cruzamentos.",
         "atributos": "Aceleração, Velocidade, Drible, Cruzamento, Técnica, Sem Bola",
         "needs": {"aceleracao": 5, "velocidade": 5, "drible": 5, "cruzamento": 5, "tecnica": 4, "sem_bola": 4, "finalizacao": 3},
         "advance": 0.135, "def_advance": 0.030, "width": 0.10,
@@ -265,12 +267,12 @@ ROLE_DEFINITIONS = {
         "intercept_bonus": -0.01, "duel_bonus": 0.6,
     },
 
-    # ---------- MÉDIOS INTERIORES / HÍBRIDOS NA TÁTICA 3 · 2-2-2 (MIX) ----------
+    # ---------- MÉDIOS INTERIORES / HÍBRIDOS NAS TÁTICAS 3 · 2-2-2 E 4 · 3-2-1 (MIX) ----------
     "mix_interior": {
         "id": "mix_interior",
         "nome": "Médio Interior (Mezzala)",
         "curto": "Mezzala",
-        "desc": "Ataca os meios-espaços no 2-2-2, conduzindo a bola e ligando o meio-campo ao ataque.",
+        "desc": "Ataca os meios-espaços no 2-2-2 e 3-2-1, conduzindo a bola e ligando o meio-campo ao ataque.",
         "atributos": "Passe, Drible, Técnica, Primeiro Toque, Visão de Jogo, Aceleração",
         "needs": {"passe": 4, "drible": 4, "tecnica": 4, "primeiro_toque": 4, "visao": 4, "aceleracao": 4, "sem_bola": 3, "trabalho": 3},
         "advance": 0.095, "def_advance": 0.0, "width": 0.040,
@@ -282,7 +284,7 @@ ROLE_DEFINITIONS = {
         "id": "mix_equilibrador",
         "nome": "Pivô Equilibrador",
         "curto": "Equilibrador",
-        "desc": "Fecha o corredor central e protege os centrais no 2-2-2, garantindo equilíbrio e recuperação.",
+        "desc": "Fecha o corredor central e protege os centrais no 2-2-2 e 3-2-1, garantindo equilíbrio e recuperação.",
         "atributos": "Posicionamento, Desarme, Antecipação, Índice de Trabalho, Resistência, Passe",
         "needs": {"posicionamento": 5, "desarme": 5, "antecipacao": 4, "trabalho": 4, "resistencia": 4, "passe": 4, "decisoes": 3, "marcacao": 3},
         "advance": 0.040, "def_advance": -0.030, "width": -0.025,
@@ -294,7 +296,7 @@ ROLE_DEFINITIONS = {
         "id": "mix_ala_criativo",
         "nome": "Médio Aberto Criativo",
         "curto": "Médio Aberto",
-        "desc": "Abre na faixa lateral para dar largura ao 2-2-2, encarar no 1x1 e cruzar para a dupla da frente.",
+        "desc": "Abre na faixa lateral para dar largura ao 2-2-2 e 3-2-1, encarar no 1x1 e cruzar para a frente.",
         "atributos": "Cruzamento, Drible, Velocidade, Aceleração, Técnica, Visão de Jogo",
         "needs": {"cruzamento": 5, "drible": 4, "velocidade": 4, "aceleracao": 4, "tecnica": 4, "visao": 3, "passe": 3, "sem_bola": 3},
         "advance": 0.110, "def_advance": 0.005, "width": 0.085,
