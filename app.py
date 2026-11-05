@@ -163,7 +163,14 @@ def servir_musica():
     return "", 404
 
 @app.route("/api/coord")
-def coord(): return jsonify(coord=me.COORD, form={k: [r[0] for r in v] for k, v in me.FORM.items()}, posicoes=online_me.POSITION_LAYOUT)
+def coord():
+    return jsonify(
+        coord=me.COORD,
+        form={k: [r[0] for r in v] for k, v in me.FORM.items()},
+        posicoes=online_me.POSITION_LAYOUT,
+        funcoes=online_me.ROLE_OPTIONS_BY_POSITION,
+        catalogo_funcoes=online_me.ROLE_CATALOG,
+    )
 
 @app.post("/api/offline/novo")
 def off_novo():
@@ -260,7 +267,7 @@ def on_entrar(d):
             r["p"][sid] = p
         elif anterior is None:
             if len(r["ordem"]) >= 2: return emit("erro", "Sala cheia. Esta sala já tem dois jogadores.")
-            r["p"][sid] = dict(nome=nome, jogador=jogador, ligado=True, picks=[], tat=None, linha=None, sala=s)
+            r["p"][sid] = dict(nome=nome, jogador=jogador, ligado=True, picks=[], tat=None, linha=None, funcoes=None, sala=s)
             r["ordem"].append(sid)
             if len(r["ordem"]) == 2:
                 random.shuffle(r["ordem"]); r["fase"] = "draft"; r["oferta"] = sortear(r["pool"])
@@ -295,7 +302,7 @@ def on_mudar_tatica():
     with SALAS_LOCK:
         r = next((r for r in SALAS.values() if sid in r["p"]), None)
         if not r or r["fase"] != "tatica": return
-        r["p"][sid]["tat"], r["p"][sid]["linha"] = None, None
+        r["p"][sid]["tat"], r["p"][sid]["linha"], r["p"][sid]["funcoes"] = None, None, None
 
 @socketio.on("formacao")
 def on_formacao(d):
@@ -307,13 +314,32 @@ def on_formacao(d):
         p = r["p"][sid]
         linha, tatica = d.get("linha", []), d.get("tatica")
         if type(tatica) is not int or tatica not in (1, 2, 3) or not isinstance(linha, list) or any(type(i) is not int for i in linha) or sorted(linha) != sorted(p["picks"]): return
-        p["tat"], p["linha"] = tatica, linha
+        funcoes = online_me.validar_funcoes(tatica, d.get("funcoes"))
+        p["tat"], p["linha"], p["funcoes"] = tatica, linha, funcoes
         if all(x["tat"] for x in r["p"].values()):
             a, b = (r["p"][i] for i in r["ordem"])
-            ev, st = me.match_engine_online(a["nome"], b["nome"], [r["jog"][i] for i in a["linha"]], [r["jog"][i] for i in b["linha"]], a["tat"], b["tat"])
+            fn_a = online_me.validar_funcoes(a["tat"], a.get("funcoes"))
+            fn_b = online_me.validar_funcoes(b["tat"], b.get("funcoes"))
+            ev, st = me.match_engine_online(
+                a["nome"], b["nome"],
+                [r["jog"][i] for i in a["linha"]],
+                [r["jog"][i] for i in b["linha"]],
+                a["tat"], b["tat"],
+                fn_a, fn_b,
+            )
             print(me._gerar_tabela_consola(a["nome"], b["nome"], st))
-            eq = [dict(nome=x["nome"], tat=x["tat"], jog=[r["jog"][i].nome for i in x["linha"]],
-                       posicoes=online_me.POSITION_LAYOUT[x["tat"]]) for x in (a, b)]
+            eq = [
+                dict(
+                    nome=x["nome"],
+                    tat=x["tat"],
+                    jog=[r["jog"][i].nome for i in x["linha"]],
+                    posicoes=online_me.POSITION_LAYOUT[x["tat"]],
+                    funcoes=fn,
+                    funcoes_curtas=[online_me.ROLE_CATALOG[f]["curto"] for f in fn],
+                    funcoes_nomes=[online_me.ROLE_CATALOG[f]["nome"] for f in fn],
+                )
+                for x, fn in ((a, fn_a), (b, fn_b))
+            ]
             emit("jogo", dict(eventos=ev, stats=st, equipas=eq), to=a["sala"]); SALAS.pop(a["sala"], None)   # reset da sala
         else: emit("espera", {}, to=sid)
 

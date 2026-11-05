@@ -110,10 +110,10 @@ def _gerar_tabela_consola(nA, nB, st):
         L.append(f"\nHomem do Jogo (MVP): {m['nome']} ({m['equipa']}) - Nota {m['nota']} [{m['resumo']}]")
     return "\n".join(L)
 
-def match_engine_online(nA, nB, plA, plB, tA, tB):
-    """Executa apenas o modo online no motor espacial independente."""
+def match_engine_online(nA, nB, plA, plB, tA, tB, fnA=None, fnB=None):
+    """Executa apenas o modo online no motor espacial independente (com suporte para funções por jogador)."""
     from online_match_engine import FootballManagerEngine, POSITION_LAYOUT
-    return FootballManagerEngine(nA, nB, plA, plB, tA, tB, COORD, POSITION_LAYOUT).jogar()
+    return FootballManagerEngine(nA, nB, plA, plB, tA, tB, COORD, POSITION_LAYOUT, fnA, fnB).jogar()
 
 if __name__ == "__main__":   # demo narrada na consola
     mk = lambda n: [Jogador(f"{n}{i}", ["Guarda-redes"] if i == 0 else ["Defesa", "Médio", "Avançado"],

@@ -1,7 +1,8 @@
 """Simulador online espacial do AC Travanca.
 
 O motor offline continua em match_engine.py. Este motor usa os atributos do
-Excel ModoOnline, posicionamento contínuo em metros e uma bola com trajetória.
+Excel ModoOnline, posicionamento contínuo em metros, funções táticas por jogador
+e uma bola com trajetória.
 """
 import math
 import random
@@ -41,6 +42,352 @@ POSITION_NEEDS = {
     "AW": {"drible": 4, "aceleracao": 4, "velocidade": 4, "tecnica": 3, "cruzamento": 3, "sem_bola": 3, "primeiro_toque": 3, "finalizacao": 3, "passe": 2, "agilidade": 2},
 }
 
+# Catálogo detalhado de funções táticas:
+# - needs: pesos extra somados aos atributos-chave da função (sem anular os restantes atributos)
+# - advance / def_advance: deslocamento longitudinal em posse e sem posse
+# - width: ajuste de largura (>0 abre na ala, <0 fecha por dentro)
+# - pass_w, dribble_w, shot_w, cross_w: multiplicadores de decisão com bola
+# - through_bias: tendência adicional para procurar passes de rutura
+# - receive_pass_w, receive_through_w, receive_cross_w: tendência para receber cada tipo de bola
+# - intercept_bonus, duel_bonus: impacto defensivo na leitura de passe e no 1x1
+ROLE_DEFINITIONS = {
+    # ---------- GUARDA-REDES (GR) ----------
+    "gr_classico": {
+        "id": "gr_classico",
+        "nome": "Guarda-Redes Clássico",
+        "curto": "GR Clássico",
+        "desc": "Focado na defesa entre os postes e no controlo da pequena área, jogando seguro.",
+        "atributos": "Reflexos, Posicionamento, Um para Um, Concentração, Jogo Aéreo",
+        "needs": {"reflexos": 5, "posicionamento": 4, "um_para_um": 4, "concentracao": 4, "jogo_aereo": 3, "comando_area": 3},
+        "advance": 0.0, "def_advance": 0.0, "width": 0.0,
+        "pass_w": 1.0, "dribble_w": 1.0, "shot_w": 1.0, "cross_w": 1.0,
+        "through_bias": -0.04, "receive_pass_w": 1.0, "receive_through_w": 1.0, "receive_cross_w": 1.0,
+        "intercept_bonus": 0.0, "duel_bonus": 0.0,
+    },
+    "gr_libero": {
+        "id": "gr_libero",
+        "nome": "Guarda-Redes Líbero",
+        "curto": "GR Líbero",
+        "desc": "Sai da baliza para varrer bolas nas costas da defesa e inicia contra-ataques com passes longos.",
+        "atributos": "Um para Um, Reflexos, Antecipação, Decisões, Pontapé de Baliza, Lançamento",
+        "needs": {"um_para_um": 5, "reflexos": 4, "antecipacao": 4, "decisoes": 4, "pontape_baliza": 4, "lancamento": 4, "passe": 3, "aceleracao": 3},
+        "advance": 0.022, "def_advance": 0.018, "width": 0.0,
+        "pass_w": 1.15, "dribble_w": 1.0, "shot_w": 1.0, "cross_w": 1.0,
+        "through_bias": 0.14, "receive_pass_w": 1.0, "receive_through_w": 1.0, "receive_cross_w": 1.0,
+        "intercept_bonus": 0.08, "duel_bonus": 1.5,
+    },
+
+    # ---------- DEFESAS CENTRAIS (D / DC) ----------
+    "dc_destruidor": {
+        "id": "dc_destruidor",
+        "nome": "Central Destruidor",
+        "curto": "Destruidor",
+        "desc": "Agressivo a atacar o portador da bola, dominante no choque físico e no jogo aéreo.",
+        "atributos": "Desarme, Marcação, Força, Agressividade, Bravura, Cabeceamento",
+        "needs": {"desarme": 5, "marcacao": 5, "forca": 5, "bravura": 4, "agressividade": 3, "cabecemento": 4, "impulsao": 4},
+        "advance": 0.015, "def_advance": 0.095, "width": 0.0,
+        "pass_w": 1.05, "dribble_w": 0.75, "shot_w": 0.8, "cross_w": 0.7,
+        "through_bias": -0.05, "receive_pass_w": 0.90, "receive_through_w": 0.75, "receive_cross_w": 1.25,
+        "intercept_bonus": 0.02, "duel_bonus": 4.2,
+    },
+    "dc_construtor": {
+        "id": "dc_construtor",
+        "nome": "Central Construtor",
+        "curto": "Construtor",
+        "desc": "Sai a jogar com critério desde trás, quebrando linhas com passes verticais e visão.",
+        "atributos": "Passe, Visão de Jogo, Compostura, Decisões, Primeiro Toque, Posicionamento",
+        "needs": {"passe": 5, "visao": 5, "compostura": 4, "decisoes": 4, "primeiro_toque": 4, "tecnica": 3, "posicionamento": 3, "desarme": 3},
+        "advance": 0.045, "def_advance": 0.065, "width": 0.01,
+        "pass_w": 1.32, "dribble_w": 1.05, "shot_w": 0.85, "cross_w": 0.8,
+        "through_bias": 0.14, "receive_pass_w": 1.22, "receive_through_w": 0.85, "receive_cross_w": 1.0,
+        "intercept_bonus": 0.04, "duel_bonus": 1.0,
+    },
+    "dc_cobertura": {
+        "id": "dc_cobertura",
+        "nome": "Central de Cobertura",
+        "curto": "Cobertura",
+        "desc": "Posiciona-se mais recuado para ler a profundidade, cortar passes e dobrar os colegas.",
+        "atributos": "Antecipação, Posicionamento, Concentração, Velocidade, Aceleração, Decisões",
+        "needs": {"antecipacao": 5, "posicionamento": 5, "concentracao": 4, "velocidade": 4, "aceleracao": 4, "decisoes": 4, "desarme": 3},
+        "advance": 0.008, "def_advance": 0.035, "width": -0.01,
+        "pass_w": 1.15, "dribble_w": 0.80, "shot_w": 0.75, "cross_w": 0.7,
+        "through_bias": 0.0, "receive_pass_w": 0.95, "receive_through_w": 0.70, "receive_cross_w": 0.95,
+        "intercept_bonus": 0.12, "duel_bonus": 2.2,
+    },
+
+    # ---------- DEFESAS LATERAIS NA TÁTICA 2 · 3-1-2 (DL) ----------
+    "dl_ala_completo": {
+        "id": "dl_ala_completo",
+        "nome": "Ala Completo",
+        "curto": "Ala Completo",
+        "desc": "Faz o corredor inteiro no 3-1-2: dá largura máxima ao ataque, cruza e recupera a defender.",
+        "atributos": "Velocidade, Aceleração, Resistência, Índice de Trabalho, Cruzamento, Desarme",
+        "needs": {"velocidade": 5, "aceleracao": 5, "resistencia": 5, "trabalho": 4, "cruzamento": 4, "drible": 3, "desarme": 3},
+        "advance": 0.095, "def_advance": 0.055, "width": 0.105,
+        "pass_w": 1.0, "dribble_w": 1.25, "shot_w": 0.95, "cross_w": 1.65,
+        "through_bias": 0.04, "receive_pass_w": 1.15, "receive_through_w": 1.28, "receive_cross_w": 0.95,
+        "intercept_bonus": 0.04, "duel_bonus": 2.0,
+    },
+    "dl_defensivo": {
+        "id": "dl_defensivo",
+        "nome": "Lateral Defensivo",
+        "curto": "Lat. Defensivo",
+        "desc": "Fecha o flanco e mantém o trio defensivo compacto no 3-1-2, arriscando pouco na subida.",
+        "atributos": "Desarme, Marcação, Posicionamento, Antecipação, Força, Concentração",
+        "needs": {"desarme": 5, "marcacao": 5, "posicionamento": 5, "antecipacao": 4, "forca": 4, "concentracao": 4, "bravura": 3},
+        "advance": 0.020, "def_advance": 0.080, "width": 0.035,
+        "pass_w": 1.22, "dribble_w": 0.72, "shot_w": 0.65, "cross_w": 0.65,
+        "through_bias": -0.04, "receive_pass_w": 0.92, "receive_through_w": 0.72, "receive_cross_w": 0.80,
+        "intercept_bonus": 0.10, "duel_bonus": 3.8,
+    },
+    "dl_invertido": {
+        "id": "dl_invertido",
+        "nome": "Lateral Invertido (Interior)",
+        "curto": "Lat. Invertido",
+        "desc": "Em posse fecha por dentro ao lado do MC para dar superioridade no meio e lançar passes de rutura.",
+        "atributos": "Passe, Visão de Jogo, Decisões, Primeiro Toque, Técnica, Antecipação",
+        "needs": {"passe": 5, "visao": 5, "decisoes": 4, "primeiro_toque": 4, "tecnica": 4, "antecipacao": 3, "posicionamento": 3, "trabalho": 3},
+        "advance": 0.068, "def_advance": 0.060, "width": -0.065,
+        "pass_w": 1.38, "dribble_w": 1.05, "shot_w": 1.05, "cross_w": 0.75,
+        "through_bias": 0.16, "receive_pass_w": 1.30, "receive_through_w": 1.05, "receive_cross_w": 0.80,
+        "intercept_bonus": 0.07, "duel_bonus": 1.8,
+    },
+    "dl_ofensivo": {
+        "id": "dl_ofensivo",
+        "nome": "Ala Ofensivo Projetado",
+        "curto": "Ala Ofensivo",
+        "desc": "Ataca constantemente a linha de fundo como um extremo extra no 3-1-2, procurando 1x1 e cruzamentos.",
+        "atributos": "Aceleração, Velocidade, Drible, Cruzamento, Técnica, Sem Bola",
+        "needs": {"aceleracao": 5, "velocidade": 5, "drible": 5, "cruzamento": 5, "tecnica": 4, "sem_bola": 4, "finalizacao": 3},
+        "advance": 0.135, "def_advance": 0.030, "width": 0.10,
+        "pass_w": 0.90, "dribble_w": 1.48, "shot_w": 1.25, "cross_w": 1.85,
+        "through_bias": 0.06, "receive_pass_w": 1.18, "receive_through_w": 1.45, "receive_cross_w": 1.10,
+        "intercept_bonus": -0.02, "duel_bonus": 0.5,
+    },
+
+    # ---------- MÉDIOS LATERAIS NA TÁTICA 1 · 2-3-1 (ML) ----------
+    "ml_extremo_puro": {
+        "id": "ml_extremo_puro",
+        "nome": "Extremo Clássico (Linha)",
+        "curto": "Ext. Clássico",
+        "desc": "Cola-se à linha lateral no 2-3-1, encara o defesa em velocidade e cruza para a área.",
+        "atributos": "Cruzamento, Velocidade, Aceleração, Drible, Técnica, Agilidade",
+        "needs": {"cruzamento": 5, "velocidade": 5, "aceleracao": 5, "drible": 5, "tecnica": 4, "agilidade": 4, "sem_bola": 3},
+        "advance": 0.115, "def_advance": 0.0, "width": 0.110,
+        "pass_w": 0.92, "dribble_w": 1.45, "shot_w": 1.05, "cross_w": 1.85,
+        "through_bias": 0.03, "receive_pass_w": 1.15, "receive_through_w": 1.42, "receive_cross_w": 1.05,
+        "intercept_bonus": 0.0, "duel_bonus": 1.0,
+    },
+    "ml_extremo_invertido": {
+        "id": "ml_extremo_invertido",
+        "nome": "Extremo Invertido (Diagonal)",
+        "curto": "Ext. Invertido",
+        "desc": "Parte da ala em diagonal para o centro no 2-3-1 para rematar à baliza ou atacar a área.",
+        "atributos": "Drible, Finalização, Técnica, Aceleração, Compostura, Sem Bola",
+        "needs": {"drible": 5, "finalizacao": 5, "tecnica": 4, "aceleracao": 4, "compostura": 4, "sem_bola": 4, "velocidade": 3, "primeiro_toque": 3},
+        "advance": 0.130, "def_advance": 0.0, "width": -0.065,
+        "pass_w": 0.90, "dribble_w": 1.42, "shot_w": 1.60, "cross_w": 0.78,
+        "through_bias": 0.08, "receive_pass_w": 1.15, "receive_through_w": 1.50, "receive_cross_w": 1.38,
+        "intercept_bonus": 0.0, "duel_bonus": 1.0,
+    },
+    "ml_ala_equilibrado": {
+        "id": "ml_ala_equilibrado",
+        "nome": "Médio Ala Trabalhador",
+        "curto": "Ala Equilibrado",
+        "desc": "Fecha o corredor defensivo para ajudar a dupla de centrais do 2-3-1 e sai rápido na transição.",
+        "atributos": "Resistência, Índice de Trabalho, Desarme, Posicionamento, Velocidade, Cruzamento",
+        "needs": {"resistencia": 5, "trabalho": 5, "desarme": 4, "posicionamento": 4, "velocidade": 4, "cruzamento": 3, "passe": 3, "antecipacao": 3},
+        "advance": 0.070, "def_advance": -0.045, "width": 0.075,
+        "pass_w": 1.15, "dribble_w": 1.05, "shot_w": 0.88, "cross_w": 1.30,
+        "through_bias": 0.02, "receive_pass_w": 1.10, "receive_through_w": 1.12, "receive_cross_w": 0.95,
+        "intercept_bonus": 0.08, "duel_bonus": 3.0,
+    },
+    "ml_criativo_interior": {
+        "id": "ml_criativo_interior",
+        "nome": "Organizador Aberto (Meia-Ala)",
+        "curto": "Org. Aberto",
+        "desc": "Deriva da ala para entrelinhas para associar-se ao MC e meter passes de rutura.",
+        "atributos": "Passe, Visão de Jogo, Decisões, Técnica, Primeiro Toque, Compostura",
+        "needs": {"passe": 5, "visao": 5, "decisoes": 5, "tecnica": 4, "primeiro_toque": 4, "compostura": 3, "cruzamento": 3, "drible": 3},
+        "advance": 0.090, "def_advance": -0.010, "width": -0.045,
+        "pass_w": 1.40, "dribble_w": 1.12, "shot_w": 1.05, "cross_w": 1.15,
+        "through_bias": 0.18, "receive_pass_w": 1.35, "receive_through_w": 1.15, "receive_cross_w": 0.90,
+        "intercept_bonus": 0.03, "duel_bonus": 1.2,
+    },
+
+    # ---------- MÉDIO CENTRO (MC) ----------
+    "mc_organizador": {
+        "id": "mc_organizador",
+        "nome": "Organizador de Jogo",
+        "curto": "Organizador",
+        "desc": "Cérebro do meio-campo: pede sempre a bola, dita o ritmo e descobre linhas de passe.",
+        "atributos": "Passe, Visão de Jogo, Decisões, Primeiro Toque, Técnica, Compostura",
+        "needs": {"passe": 5, "visao": 5, "decisoes": 5, "primeiro_toque": 4, "tecnica": 4, "compostura": 4, "posicionamento": 3},
+        "advance": 0.055, "def_advance": 0.0, "width": 0.0,
+        "pass_w": 1.42, "dribble_w": 0.95, "shot_w": 0.92, "cross_w": 1.0,
+        "through_bias": 0.18, "receive_pass_w": 1.38, "receive_through_w": 0.95, "receive_cross_w": 0.85,
+        "intercept_bonus": 0.04, "duel_bonus": 1.2,
+    },
+    "mc_trinco": {
+        "id": "mc_trinco",
+        "nome": "Trinco Posicional",
+        "curto": "Trinco",
+        "desc": "Ancora o meio-campo à frente da defesa, fecha linhas de passe e recupera bolas.",
+        "atributos": "Posicionamento, Desarme, Antecipação, Marcação, Concentração, Força",
+        "needs": {"posicionamento": 5, "desarme": 5, "antecipacao": 5, "marcacao": 4, "concentracao": 4, "forca": 4, "trabalho": 3, "passe": 3},
+        "advance": 0.020, "def_advance": -0.035, "width": 0.0,
+        "pass_w": 1.25, "dribble_w": 0.72, "shot_w": 0.70, "cross_w": 0.75,
+        "through_bias": -0.02, "receive_pass_w": 1.12, "receive_through_w": 0.70, "receive_cross_w": 0.80,
+        "intercept_bonus": 0.12, "duel_bonus": 3.8,
+    },
+    "mc_box_to_box": {
+        "id": "mc_box_to_box",
+        "nome": "Box-to-Box (Todo-o-Terreno)",
+        "curto": "Box-to-Box",
+        "desc": "Percorre o campo de área a área: pressiona na recuperação e chega de trás para finalizar.",
+        "atributos": "Resistência, Índice de Trabalho, Velocidade, Passe, Desarme, Sem Bola",
+        "needs": {"resistencia": 5, "trabalho": 5, "velocidade": 4, "passe": 3, "desarme": 4, "sem_bola": 4, "finalizacao": 3, "forca": 3},
+        "advance": 0.095, "def_advance": -0.015, "width": 0.0,
+        "pass_w": 1.10, "dribble_w": 1.15, "shot_w": 1.30, "cross_w": 1.0,
+        "through_bias": 0.06, "receive_pass_w": 1.20, "receive_through_w": 1.28, "receive_cross_w": 1.18,
+        "intercept_bonus": 0.06, "duel_bonus": 2.8,
+    },
+    "mc_ofensivo": {
+        "id": "mc_ofensivo",
+        "nome": "Médio Ofensivo (Criativo #10)",
+        "curto": "Médio Ofensivo",
+        "desc": "Joga adiantado no apoio aos avançados para rasgar a defesa com drible, último passe ou remate.",
+        "atributos": "Visão de Jogo, Técnica, Passe, Drible, Decisões, Finalização",
+        "needs": {"visao": 5, "tecnica": 5, "passe": 4, "drible": 4, "decisoes": 4, "finalizacao": 4, "primeiro_toque": 4, "sem_bola": 3},
+        "advance": 0.120, "def_advance": 0.020, "width": 0.0,
+        "pass_w": 1.18, "dribble_w": 1.38, "shot_w": 1.42, "cross_w": 1.05,
+        "through_bias": 0.16, "receive_pass_w": 1.32, "receive_through_w": 1.35, "receive_cross_w": 1.10,
+        "intercept_bonus": -0.01, "duel_bonus": 0.6,
+    },
+
+    # ---------- MÉDIOS INTERIORES / HÍBRIDOS NA TÁTICA 3 · 2-2-2 (MIX) ----------
+    "mix_interior": {
+        "id": "mix_interior",
+        "nome": "Médio Interior (Mezzala)",
+        "curto": "Mezzala",
+        "desc": "Ataca os meios-espaços no 2-2-2, conduzindo a bola e ligando o meio-campo ao ataque.",
+        "atributos": "Passe, Drible, Técnica, Primeiro Toque, Visão de Jogo, Aceleração",
+        "needs": {"passe": 4, "drible": 4, "tecnica": 4, "primeiro_toque": 4, "visao": 4, "aceleracao": 4, "sem_bola": 3, "trabalho": 3},
+        "advance": 0.095, "def_advance": 0.0, "width": 0.040,
+        "pass_w": 1.18, "dribble_w": 1.28, "shot_w": 1.20, "cross_w": 1.15,
+        "through_bias": 0.10, "receive_pass_w": 1.25, "receive_through_w": 1.28, "receive_cross_w": 1.05,
+        "intercept_bonus": 0.03, "duel_bonus": 1.5,
+    },
+    "mix_equilibrador": {
+        "id": "mix_equilibrador",
+        "nome": "Pivô Equilibrador",
+        "curto": "Equilibrador",
+        "desc": "Fecha o corredor central e protege os centrais no 2-2-2, garantindo equilíbrio e recuperação.",
+        "atributos": "Posicionamento, Desarme, Antecipação, Índice de Trabalho, Resistência, Passe",
+        "needs": {"posicionamento": 5, "desarme": 5, "antecipacao": 4, "trabalho": 4, "resistencia": 4, "passe": 4, "decisoes": 3, "marcacao": 3},
+        "advance": 0.040, "def_advance": -0.030, "width": -0.025,
+        "pass_w": 1.28, "dribble_w": 0.82, "shot_w": 0.80, "cross_w": 0.80,
+        "through_bias": 0.04, "receive_pass_w": 1.15, "receive_through_w": 0.82, "receive_cross_w": 0.85,
+        "intercept_bonus": 0.10, "duel_bonus": 3.4,
+    },
+    "mix_ala_criativo": {
+        "id": "mix_ala_criativo",
+        "nome": "Médio Aberto Criativo",
+        "curto": "Médio Aberto",
+        "desc": "Abre na faixa lateral para dar largura ao 2-2-2, encarar no 1x1 e cruzar para a dupla da frente.",
+        "atributos": "Cruzamento, Drible, Velocidade, Aceleração, Técnica, Visão de Jogo",
+        "needs": {"cruzamento": 5, "drible": 4, "velocidade": 4, "aceleracao": 4, "tecnica": 4, "visao": 3, "passe": 3, "sem_bola": 3},
+        "advance": 0.110, "def_advance": 0.005, "width": 0.085,
+        "pass_w": 1.0, "dribble_w": 1.35, "shot_w": 1.05, "cross_w": 1.65,
+        "through_bias": 0.06, "receive_pass_w": 1.18, "receive_through_w": 1.32, "receive_cross_w": 1.0,
+        "intercept_bonus": 0.01, "duel_bonus": 1.2,
+    },
+
+    # ---------- AVANÇADOS (A / AW) ----------
+    "av_finalizador": {
+        "id": "av_finalizador",
+        "nome": "Ponta de Lança Fixo (Finalizador)",
+        "curto": "Finalizador",
+        "desc": "Fica na zona de finalização: letal ao primeiro toque, no jogo aéreo e dentro da área.",
+        "atributos": "Finalização, Compostura, Cabeceamento, Primeiro Toque, Sem Bola, Força",
+        "needs": {"finalizacao": 6, "compostura": 5, "cabecemento": 4, "primeiro_toque": 4, "sem_bola": 4, "forca": 3, "impulsao": 3},
+        "advance": 0.130, "def_advance": 0.010, "width": -0.035,
+        "pass_w": 0.82, "dribble_w": 0.95, "shot_w": 1.65, "cross_w": 0.70,
+        "through_bias": 0.0, "receive_pass_w": 1.08, "receive_through_w": 1.30, "receive_cross_w": 1.60,
+        "intercept_bonus": 0.0, "duel_bonus": 1.8,
+    },
+    "av_movel": {
+        "id": "av_movel",
+        "nome": "Avançado Móvel (Rutura)",
+        "curto": "Av. Móvel",
+        "desc": "Ataca constantemente a profundidade nas costas da defesa em velocidade.",
+        "atributos": "Velocidade, Aceleração, Sem Bola, Finalização, Drible, Compostura",
+        "needs": {"velocidade": 5, "aceleracao": 5, "sem_bola": 5, "finalizacao": 4, "drible": 4, "compostura": 4, "primeiro_toque": 3},
+        "advance": 0.145, "def_advance": 0.015, "width": 0.025,
+        "pass_w": 0.90, "dribble_w": 1.35, "shot_w": 1.42, "cross_w": 0.95,
+        "through_bias": 0.04, "receive_pass_w": 1.10, "receive_through_w": 1.65, "receive_cross_w": 1.25,
+        "intercept_bonus": 0.02, "duel_bonus": 1.2,
+    },
+    "av_falso9": {
+        "id": "av_falso9",
+        "nome": "Falso 9 (Segundo Avançado)",
+        "curto": "Falso 9",
+        "desc": "Recua para entrelinhas para ligar o jogo, arrastar defesas e isolar os colegas.",
+        "atributos": "Passe, Visão de Jogo, Técnica, Drible, Primeiro Toque, Decisões, Finalização",
+        "needs": {"passe": 5, "visao": 5, "tecnica": 5, "drible": 4, "primeiro_toque": 4, "decisoes": 4, "compostura": 4, "finalizacao": 3},
+        "advance": 0.065, "def_advance": -0.010, "width": -0.020,
+        "pass_w": 1.38, "dribble_w": 1.25, "shot_w": 1.15, "cross_w": 0.90,
+        "through_bias": 0.18, "receive_pass_w": 1.36, "receive_through_w": 1.10, "receive_cross_w": 0.92,
+        "intercept_bonus": 0.03, "duel_bonus": 1.2,
+    },
+    "av_extremo_ataque": {
+        "id": "av_extremo_ataque",
+        "nome": "Avançado Interior / Extremo",
+        "curto": "Av. Interior",
+        "desc": "Cai nas faixas para encarar no 1x1, tirar cruzamentos ou fletir para rematar.",
+        "atributos": "Drible, Aceleração, Velocidade, Técnica, Finalização, Cruzamento",
+        "needs": {"drible": 5, "aceleracao": 5, "velocidade": 4, "tecnica": 4, "finalizacao": 4, "cruzamento": 4, "agilidade": 4},
+        "advance": 0.120, "def_advance": 0.0, "width": 0.080,
+        "pass_w": 0.95, "dribble_w": 1.48, "shot_w": 1.32, "cross_w": 1.45,
+        "through_bias": 0.06, "receive_pass_w": 1.15, "receive_through_w": 1.42, "receive_cross_w": 1.18,
+        "intercept_bonus": 0.01, "duel_bonus": 1.0,
+    },
+}
+
+ROLE_OPTIONS_BY_POSITION = {
+    "GR": ["gr_classico", "gr_libero"],
+    "D":  ["dc_destruidor", "dc_construtor", "dc_cobertura"],
+    "DC": ["dc_destruidor", "dc_construtor", "dc_cobertura"],
+    "DL": ["dl_ala_completo", "dl_defensivo", "dl_invertido", "dl_ofensivo"],
+    "MC": ["mc_organizador", "mc_trinco", "mc_box_to_box", "mc_ofensivo"],
+    "ML": ["ml_extremo_puro", "ml_extremo_invertido", "ml_ala_equilibrado", "ml_criativo_interior"],
+    "MIX": ["mix_interior", "mix_equilibrador", "mix_ala_criativo", "mc_box_to_box"],
+    "A":  ["av_finalizador", "av_movel", "av_falso9", "av_extremo_ataque"],
+    "AW": ["av_movel", "av_finalizador", "av_falso9", "av_extremo_ataque"],
+}
+
+ROLE_CATALOG = {
+    k: {
+        "id": v["id"],
+        "nome": v["nome"],
+        "curto": v["curto"],
+        "desc": v["desc"],
+        "atributos": v["atributos"],
+    }
+    for k, v in ROLE_DEFINITIONS.items()
+}
+
+
+def validar_funcoes(tatica, funcoes=None, position_layout=None):
+    """Garante uma lista de 7 funções válidas para a tática escolhida."""
+    layout = (position_layout or POSITION_LAYOUT)[tatica]
+    out = []
+    for i, pos in enumerate(layout):
+        opcoes = ROLE_OPTIONS_BY_POSITION.get(pos, ["mc_organizador"])
+        escolha = funcoes[i] if isinstance(funcoes, list) and i < len(funcoes) else None
+        out.append(escolha if escolha in opcoes else opcoes[0])
+    return out
+
 
 class FootballManagerEngine:
     MIN = 60
@@ -51,13 +398,17 @@ class FootballManagerEngine:
     PRESSURE_LEVEL = 0.56
     TEMPO_LEVEL = 0
 
-    def __init__(self, name_a, name_b, players_a, players_b, tactic_a, tactic_b, coordinates, position_layout=None):
+    def __init__(self, name_a, name_b, players_a, players_b, tactic_a, tactic_b, coordinates, position_layout=None, roles_a=None, roles_b=None):
         self.names = [name_a, name_b]
         self.teams = [players_a, players_b]
         self.tactics = [tactic_a, tactic_b]
         self.coordinates = coordinates
         position_layout = position_layout or POSITION_LAYOUT
         self.positions = [position_layout[tactic_a], position_layout[tactic_b]]
+        self.roles = [
+            validar_funcoes(tactic_a, roles_a, position_layout),
+            validar_funcoes(tactic_b, roles_b, position_layout),
+        ]
         self.base = [coordinates[self.tactics[k]] for k in range(2)]
         self.ev = []
         self.pos = random.randint(0, 1)
@@ -77,6 +428,10 @@ class FootballManagerEngine:
         self.c = self._kickoff_player(self.pos)
         self._owner(self.pos, self.c)
 
+    def _role(self, team, index):
+        role_id = self.roles[team][index]
+        return ROLE_DEFINITIONS.get(role_id, ROLE_DEFINITIONS["mc_organizador"])
+
     @staticmethod
     def _team_stats():
         return dict(golos=0, posse=0, rem=0, bal=0, def_=0, pc=0, pt=0, des=0, inte=0,
@@ -85,7 +440,9 @@ class FootballManagerEngine:
 
     def _player_stats(self, team, index):
         p = self.teams[team][index]
-        return dict(nome=p.nome, pos="GR" if index == 0 else "/".join(p.pos), posicao=self.positions[team][index],
+        role = self._role(team, index)
+        return dict(nome=p.nome, pos="GR" if index == 0 else "/".join(p.pos),
+                    posicao=self.positions[team][index], funcao=role["curto"], funcao_nome=role["nome"],
                     golos=0, ast=0, rem=0, bal=0, pc=0, pt=0,
                     dri=0, des=0, inte=0, bloq=0, def_=0, gs=0, faltas=0, amarelos=0,
                     vermelhos=0, lesao=0, perdas=0, recuperacoes=0, nota=6.0, resumo="")
@@ -106,10 +463,11 @@ class FootballManagerEngine:
         p = self.teams[team][index]
         raw = self._safe(p.a.get(key, 50.0))
         position = self.positions[team][index]
+        role = self._role(team, index)
         if position == "MIX":
             need = {k: (POSITION_NEEDS["MC"].get(k, 0) + POSITION_NEEDS["ML"].get(k, 0)) / 2 for k in ALL_ATTRIBUTES}
         else:
-            need = POSITION_NEEDS[position]
+            need = dict(POSITION_NEEDS[position])
         if position == "GR":
             weights = {k: 0.45 for k in OUTFIELD_ATTRIBUTES}
             weights.update({k: 1.0 for k in GOALKEEPER_ATTRIBUTES})
@@ -117,9 +475,14 @@ class FootballManagerEngine:
             weights = {k: 1.0 for k in OUTFIELD_ATTRIBUTES}
             weights.update({k: 0.25 for k in GOALKEEPER_ATTRIBUTES})
         for attr, priority in need.items():
-            weights[attr] += priority
+            weights[attr] += priority * 0.75
+        role_needs = role.get("needs", {})
+        for attr, priority in role_needs.items():
+            weights[attr] = weights.get(attr, 1.0) + priority * 1.35
         profile = sum(self._safe(p.a.get(attr, 50.0)) * weight for attr, weight in weights.items()) / sum(weights.values())
-        effective = raw * 0.76 + profile * 0.24
+        role_focus = role_needs.get(key, 0)
+        # Se o atributo pedido é prioritário para a função escolhida, o perfil funcional pesa mais
+        effective = raw * (0.68 if role_focus >= 4 else 0.74) + profile * (0.32 if role_focus >= 4 else 0.26)
         return effective * (1 - self.fadiga[team][index] * 0.30)
 
     def _foot_penalty(self, team, index, y):
@@ -191,24 +554,27 @@ class FootballManagerEngine:
                     continue
                 base_u, base_v = self.base[team][i]
                 position = self.positions[team][i]
-                advance = {"GR": 0.0, "D": 0.025, "DC": 0.015, "DL": 0.055, "MC": 0.07,
-                           "ML": 0.10, "MIX": 0.085, "A": 0.11, "AW": 0.12}[position]
-                target_u = base_u + (advance if attacking else 0.0)
+                role = self._role(team, i)
+                advance = role.get("advance", 0.06)
+                def_advance = role.get("def_advance", 0.0)
+                width_shift = role.get("width", 0.0)
+                target_u = base_u + (advance if attacking else def_advance)
                 target_v = base_v
                 if attacking:
-                    target_u += (ball_u - 0.5) * (0.20 if i else 0.0)
-                    target_v += (ball_v - base_v) * (0.25 if position in MIDFIELD_POSITIONS | FORWARD_POSITIONS else 0.14)
+                    target_u += (ball_u - 0.5) * (0.20 if i else 0.04)
+                    target_v += (ball_v - base_v) * (0.24 if position in MIDFIELD_POSITIONS | FORWARD_POSITIONS else 0.14)
+                    if abs(base_v - 0.5) > 0.04:
+                        # width_shift > 0 aproxima da linha lateral; width_shift < 0 flete para o corredor central
+                        side_sign = -1.0 if base_v < 0.5 else 1.0
+                        target_v += side_sign * width_shift
                 else:
                     target_u += (ball_u - 0.48) * (0.22 if position in DEFENDER_POSITIONS else 0.12)
                     target_v += (ball_v - base_v) * 0.22
-                    if position in DEFENDER_POSITIONS:
-                        target_u += 0.075
-                if position in {"DL", "ML", "AW"}:
-                    target_v += -0.085 if base_v < 0.5 else 0.085
-                elif position == "MIX":
-                    target_v += -0.035 if base_v < 0.5 else 0.035
+                    if abs(base_v - 0.5) > 0.04:
+                        side_sign = -1.0 if base_v < 0.5 else 1.0
+                        target_v += side_sign * (width_shift * 0.45)
                 target_u = self._clamp(target_u, 0.04, 0.96)
-                target_v = self._clamp(target_v, 0.05, 0.95)
+                target_v = self._clamp(target_v, 0.045, 0.955)
                 wx, wy = self._world(team, target_u, target_v)
                 dist = self._distance(p, {"x": wx, "y": wy})
                 limit = self._speed(team, i) * self.ACTION_SECONDS * 0.10
@@ -255,14 +621,15 @@ class FootballManagerEngine:
                     continue
                 dist = self._distance(p, target)
                 anticipate = self._attr(team, index, "antecipacao")
-                reaction = 0.42 - anticipate * 0.002
+                role = self._role(team, index)
+                reaction = 0.42 - anticipate * 0.002 - role.get("intercept_bonus", 0.0) * 0.35
                 if preferred == (team, index):
                     reaction -= 0.14
                 if target.get("z", 0.0) >= 3.0:
                     height = self._safe(self.teams[team][index].a.get("altura", 1.75), 1.75)
                     aerial = 0.55 * self._attr(team, index, "cabecemento") + 0.30 * self._attr(team, index, "impulsao") + 0.15 * min(100, height * 52)
                     reaction -= aerial / 420
-                arrivals.append((dist / self._speed(team, index) + max(0.08, reaction), team, index))
+                arrivals.append((dist / self._speed(team, index) + max(0.06, reaction), team, index))
         return min(arrivals) if arrivals else (99.0, self.pos, self.c)
 
     def _segment_interceptor(self, team, start, end, flight_time):
@@ -277,9 +644,11 @@ class FootballManagerEngine:
             spot = {"x": start["x"] + (end["x"] - start["x"]) * frac,
                     "y": start["y"] + (end["y"] - start["y"]) * frac}
             gap = self._distance(p, spot)
-            reach_time = gap / self._speed(1 - team, index) + 0.36 - self._attr(1 - team, index, "antecipacao") * 0.002
+            role = self._role(1 - team, index)
+            bonus = role.get("intercept_bonus", 0.0)
+            reach_time = gap / self._speed(1 - team, index) + 0.36 - self._attr(1 - team, index, "antecipacao") * 0.002 - bonus
             at_ball_time = max(0.0, flight_time * frac)
-            if gap < 2.8 and reach_time <= at_ball_time + 0.20:
+            if gap < 2.8 + bonus * 2.5 and reach_time <= at_ball_time + 0.20 + bonus * 0.5:
                 score = reach_time + gap * 0.015
                 if best is None or score < best[0]:
                     best = (score, index, spot)
@@ -292,7 +661,8 @@ class FootballManagerEngine:
         line = sorted((self._u(defending_team, self.players[defending_team][i]["x"]) for i in defenders), reverse=True)
         base_line = line[min(1, len(line) - 1)]
         group_skill = sum((self._attr(defending_team, i, "decisoes") + self._attr(defending_team, i, "antecipacao")) / 2 for i in defenders) / len(defenders)
-        chance = self._clamp(0.18 + group_skill / 100 * 0.58, 0.28, 0.78)
+        cover_count = sum(1 for i in defenders if self.roles[defending_team][i] == "dc_cobertura")
+        chance = self._clamp(0.18 + group_skill / 100 * 0.58 + cover_count * 0.05, 0.28, 0.82)
         if random.random() < chance:
             base_line += 0.035
         return base_line
@@ -320,19 +690,18 @@ class FootballManagerEngine:
             p = self.players[team][i]
             u = self._u(team, p["x"])
             position = self.positions[team][i]
+            role = self._role(team, i)
             weight = 1.0 + self._attr(team, i, "visao") / 60 + self._attr(team, i, "decisoes") / 100
             if through:
-                weight *= 0.55 + max(0.0, u - source_u) * 3.5 + self._attr(team, i, "sem_bola") / 120
+                weight *= (0.55 + max(0.0, u - source_u) * 3.5 + self._attr(team, i, "sem_bola") / 120) * role.get("receive_through_w", 1.0)
             else:
-                weight *= 1.0 + max(-0.12, min(0.12, u - source_u))
+                weight *= (1.0 + max(-0.12, min(0.12, u - source_u))) * role.get("receive_pass_w", 1.0)
             if position == "MC":
-                weight *= 1.18
+                weight *= 1.15
             elif position in {"ML", "MIX", "DL"} and abs(p["y"] - 0.5) > 0.18:
                 weight *= 1.12
-            elif position == "MIX" and through:
-                weight *= 1.14
             if cross:
-                weight *= 1.55 if position in FORWARD_POSITIONS else 0.76
+                weight *= (1.55 if position in FORWARD_POSITIONS else 0.82) * role.get("receive_cross_w", 1.0)
                 height = self._safe(self.teams[team][i].a.get("altura", 1.75), 1.75)
                 aerial = 0.52 * self._attr(team, i, "cabecemento") + 0.30 * self._attr(team, i, "impulsao") + 0.18 * min(100, height * 52)
                 weight *= 0.58 + aerial / 100
@@ -345,11 +714,13 @@ class FootballManagerEngine:
         receiver = self._choose_receiver(team, carrier, through, cross)
         passer_p = self.teams[team][carrier]
         target_player = self.players[team][receiver]
+        receiver_role = self._role(team, receiver)
         start = {"x": self.ball["x"], "y": self.ball["y"], "z": self.ball["z"]}
         receiver_u = self._u(team, target_player["x"])
         receiver_v = target_player["y"] if team == 0 else 1 - target_player["y"]
         if through:
-            receiver_u += 0.045 + self._attr(team, receiver, "velocidade") / 1800
+            run_boost = 0.055 if receiver_role["id"] in {"av_movel", "ml_extremo_invertido", "dl_ofensivo"} else 0.045
+            receiver_u += run_boost + self._attr(team, receiver, "velocidade") / 1800
         elif cross:
             receiver_u = max(receiver_u, 0.84)
         receiver_u = self._clamp(receiver_u, 0.04, 0.97)
@@ -438,43 +809,42 @@ class FootballManagerEngine:
         self.stats[self.pos]["posse"] += 1
         p = self.teams[self.pos][self.c]
         P = self.pstats[self.pos][self.c]
+        role = self._role(self.pos, self.c)
         if self.c == self._keeper(self.pos):
-            self._pass(minute, through=False)
+            self._pass(minute, through=random.random() < max(0.0, role.get("through_bias", 0.0)))
             return
         team, carrier = self.pos, self.c
         u = self._u(team, self.players[team][carrier]["x"])
         pressure = self._pressure(team, carrier)
         position = self.positions[team][carrier]
-        can_shoot = u > 0.54
-        can_cross = u > 0.59 and abs(self.players[team][carrier]["y"] - 0.5) > 0.21 and position in {"DL", "ML", "AW"}
-        weights = [30.0, 20.0, max(2.0, 14 + (u - 0.54) * 62) if can_shoot else 2.0, 10.0 if can_cross else 1.0]
-        if position == "MC":
-            weights[0] *= 1.22
-        if position in {"ML", "DL", "AW"}:
-            weights[1] *= 1.22
-            weights[3] *= 1.45
-        if position in FORWARD_POSITIONS:
-            weights[2] *= 1.42
+        can_shoot = u > (0.50 if role["id"] in {"ml_extremo_invertido", "mc_ofensivo", "mc_box_to_box"} else 0.54)
+        wide_role = role["id"] in {"dl_ala_completo", "dl_ofensivo", "ml_extremo_puro", "ml_ala_equilibrado", "mix_ala_criativo", "av_extremo_ataque"}
+        can_cross = u > (0.55 if wide_role else 0.59) and (abs(self.players[team][carrier]["y"] - 0.5) > 0.17 or wide_role) and (position in {"DL", "ML", "AW", "MIX"} or wide_role)
+        weights = [
+            30.0 * role.get("pass_w", 1.0),
+            20.0 * role.get("dribble_w", 1.0),
+            (max(2.0, 14 + (u - 0.54) * 62) if can_shoot else 2.0) * role.get("shot_w", 1.0),
+            (10.0 if can_cross else 1.0) * role.get("cross_w", 1.0),
+        ]
         traits = str(p.a.get("traits", "")).casefold()
         if "finta frequentemente" in traits:
-            weights[1] *= 1.45
+            weights[1] *= 1.35
         action = random.choices(("pass", "dribble", "shot", "cross"), weights)[0]
         defender = self._nearest_defender(team, carrier)
         if action == "pass":
-            P["pt"] += 0
-            through_chance = 0.12 + self._attr(team, carrier, "visao") / 500
+            through_chance = 0.12 + self._attr(team, carrier, "visao") / 500 + role.get("through_bias", 0.0)
             trait = str(p.a.get("traits", "")).casefold()
-            self._pass(minute, through=random.random() < min(0.48, through_chance) or "passes de rutura" in trait)
+            self._pass(minute, through=random.random() < self._clamp(through_chance, 0.04, 0.58) or "passes de rutura" in trait)
         elif action == "cross":
             self.stats[team]["cruzamentos"] += 1
-            P["pt"] += 0
             self._pass(minute, cross=True)
         elif action == "dribble":
             d = self.teams[1-team][defender]
-            dstat = self.pstats[1-team][defender]
+            def_role = self._role(1-team, defender)
             attack = 0.38 * self._attr(team, carrier, "drible") + 0.24 * self._attr(team, carrier, "tecnica") + 0.22 * self._attr(team, carrier, "aceleracao") + 0.16 * self._attr(team, carrier, "velocidade")
             defend = 0.30 * self._attr(1-team, defender, "desarme") + 0.20 * self._attr(1-team, defender, "marcacao") + 0.21 * self._attr(1-team, defender, "antecipacao") + 0.15 * self._attr(1-team, defender, "agilidade") + 0.14 * self._attr(1-team, defender, "forca")
-            attack += 3 if position in {"ML", "DL", "MIX", "AW"} else 0
+            attack += 3.0 if role.get("dribble_w", 1.0) >= 1.25 else 0.0
+            defend += def_role.get("duel_bonus", 0.0)
             pressure_mod = self.PRESSURE_LEVEL
             win = random.random() < self._prob(0.49 + (attack - defend) / 115 - pressure_mod * pressure / 110)
             self.stats[team]["duelos"] += 1
@@ -483,11 +853,15 @@ class FootballManagerEngine:
                 P["dri"] += 1
                 self._event(minute, "drible", f"{p.nome} ultrapassa {d.nome} com um drible.", team, carrier, None, defender)
                 local_u, local_v = self._local(team, self.players[team][carrier]["x"], self.players[team][carrier]["y"])
-                local_u = min(0.97, local_u + 0.035)
+                local_u = min(0.97, local_u + 0.038)
+                if role["id"] in {"ml_extremo_invertido", "dl_invertido", "av_extremo_ataque"}:
+                    local_v += (0.5 - local_v) * 0.18
                 x, y = self._world(team, local_u, local_v)
                 self._owner(team, carrier, x, y)
             else:
                 foul_chance = 0.045 + self._attr(1-team, defender, "agressividade") / 680 + pressure_mod * 0.055
+                if def_role["id"] in {"dc_destruidor", "mc_trinco", "dl_defensivo"}:
+                    foul_chance += 0.015
                 if random.random() < foul_chance:
                     self._foul(minute, team, carrier, defender)
                 else:
@@ -505,10 +879,11 @@ class FootballManagerEngine:
         shooter = self.c if taker is None else taker
         shot_player = self.teams[team][shooter]
         player = self.players[team][shooter]
+        role = self._role(team, shooter)
         u = self._u(team, player["x"])
         y = player["y"] if team == 0 else 1 - player["y"]
         distance = 11.0 if penalty else max(4.0, (1 - u) * self.FIELD_X)
-        angle_penalty = abs(y - 0.5) * 28
+        angle_penalty = abs(y - 0.5) * (21 if role["id"] in {"ml_extremo_invertido", "av_extremo_ataque"} else 28)
         defender = self._nearest_defender(team, shooter)
         gk = self._keeper(1-team)
         pressure = self._pressure(team, shooter)
@@ -516,6 +891,10 @@ class FootballManagerEngine:
         tech = self._attr(team, shooter, "tecnica")
         composure = self._attr(team, shooter, "compostura")
         skill = 0.43 * fin + 0.21 * tech + 0.17 * composure + 0.11 * self._attr(team, shooter, "decisoes") + 0.08 * self._attr(team, shooter, "primeiro_toque")
+        if role["id"] == "av_finalizador":
+            skill += 2.2
+        elif role["id"] in {"ml_extremo_invertido", "mc_ofensivo"}:
+            skill += 1.5
         if set_piece:
             skill = 0.52 * self._attr(team, shooter, "bola_parada") + 0.28 * tech + 0.20 * fin
         if penalty:

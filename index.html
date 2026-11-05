@@ -44,7 +44,18 @@ canvas{width:100%;border:3px solid var(--ouro);border-radius:10px;background:#13
 .nota.alta{background:var(--ouro);color:var(--noite)}.nota.media{background:var(--ceu);color:var(--noite)}.nota.baixa{background:#ff6b6b;color:#081a3d}
 .pos-tag{display:inline-block;min-width:28px;text-align:center;background:#1747b8;color:var(--pal);border-radius:4px;padding:1px 5px;font-size:12px;font-weight:700;margin-right:6px}
 .tactic-summary{background:#0d2a63;border:1px solid #1d3f87;border-radius:8px;padding:10px;margin:8px 0}
-.slot small{display:block;font-size:9px;line-height:1;color:#1747b8;font-weight:800}.slot.cheio small{color:#1747b8}
+.slot small{display:block;font-size:9px;line-height:1.05;color:#1747b8;font-weight:800}.slot.cheio small{color:#1747b8}
+#boxFuncoes{margin-top:18px;display:none}
+#boxFuncoes.on{display:block}
+.roles-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px;margin-top:10px}
+.role-card{background:#0d2a63;border:2px solid #1d3f87;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.role-card.filled{border-color:var(--ouro)}
+.role-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-weight:700}
+.role-btns{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0}
+.role-btn{font:600 13px Barlow,sans-serif;padding:5px 9px;border-radius:7px;border:1.5px solid var(--ouro);background:transparent;color:var(--ouro);cursor:pointer}
+.role-btn.ativo{background:var(--ouro);color:var(--noite);font-weight:700}
+.role-desc{font-size:13px;color:var(--gelo);line-height:1.3}
+.role-attr{font-size:12px;color:var(--pal);line-height:1.25}
 @media(prefers-reduced-motion:reduce){*{animation:none!important}}
 </style></head><body>
 <button id="musica" class="sec" aria-label="Música">♪ Música desligada</button><audio id="aud" src="/musica.mp3" loop preload="auto"></audio>
@@ -66,6 +77,11 @@ canvas{width:100%;border:3px solid var(--ouro);border-radius:10px;background:#13
    <button type="button" data-lt="3" class="sec">Tática 3 · 2-2-2</button>
  </div>
   <div class="pitch" id="pitch"></div><div class="row" id="banco"></div>
+  <div id="boxFuncoes">
+   <h3>Escolhe a função de cada jogador</h3>
+   <p class="sub" style="margin:4px 0 8px">Cada posição tem funções específicas conforme a formação escolhida (especialmente os médios laterais no 2-3-1 e os defesas laterais no 3-1-2). A função altera os atributos mais pesados e o comportamento em campo.</p>
+   <div id="listaFuncoes" class="roles-grid"></div>
+  </div>
   <div class="row"><button id="mudarTat" class="sec">Mudar tática</button><button id="auto" class="sec">Preencher pelas posições</button><button id="ok" disabled>Confirmar equipa</button></div></section>
 
 <section id="espera" class="tela"><h2 id="eT"></h2><div id="eB"></div></section>
@@ -95,7 +111,7 @@ canvas{width:100%;border:3px solid var(--ouro);border-radius:10px;background:#13
 <div id="fimJogo"><div><h1>FIM DE JOGO!</h1><h2 id="fN" style="font-size:48px;color:#fff"></h2></div></div>
 
 <script>
-const $=s=>document.querySelector(s),T=['', '2-3-1','3-1-2','2-2-2'];let G={},CO,FO,PO,socket,sala=new URLSearchParams(location.search).get('sala');
+const $=s=>document.querySelector(s),T=['', '2-3-1','3-1-2','2-2-2'];let G={},CO,FO,PO,RO={"GR": ["gr_classico", "gr_libero"], "D": ["dc_destruidor", "dc_construtor", "dc_cobertura"], "DC": ["dc_destruidor", "dc_construtor", "dc_cobertura"], "DL": ["dl_ala_completo", "dl_defensivo", "dl_invertido", "dl_ofensivo"], "MC": ["mc_organizador", "mc_trinco", "mc_box_to_box", "mc_ofensivo"], "ML": ["ml_extremo_puro", "ml_extremo_invertido", "ml_ala_equilibrado", "ml_criativo_interior"], "MIX": ["mix_interior", "mix_equilibrador", "mix_ala_criativo", "mc_box_to_box"], "A": ["av_finalizador", "av_movel", "av_falso9", "av_extremo_ataque"], "AW": ["av_movel", "av_finalizador", "av_falso9", "av_extremo_ataque"]},RC={"gr_classico": {"id": "gr_classico", "nome": "Guarda-Redes Clássico", "curto": "GR Clássico", "desc": "Focado na defesa entre os postes e no controlo da pequena área, jogando seguro.", "atributos": "Reflexos, Posicionamento, Um para Um, Concentração, Jogo Aéreo"}, "gr_libero": {"id": "gr_libero", "nome": "Guarda-Redes Líbero", "curto": "GR Líbero", "desc": "Sai da baliza para varrer bolas nas costas da defesa e inicia contra-ataques com passes longos.", "atributos": "Um para Um, Reflexos, Antecipação, Decisões, Pontapé de Baliza, Lançamento"}, "dc_destruidor": {"id": "dc_destruidor", "nome": "Central Destruidor", "curto": "Destruidor", "desc": "Agressivo a atacar o portador da bola, dominante no choque físico e no jogo aéreo.", "atributos": "Desarme, Marcação, Força, Agressividade, Bravura, Cabeceamento"}, "dc_construtor": {"id": "dc_construtor", "nome": "Central Construtor", "curto": "Construtor", "desc": "Sai a jogar com critério desde trás, quebrando linhas com passes verticais e visão.", "atributos": "Passe, Visão de Jogo, Compostura, Decisões, Primeiro Toque, Posicionamento"}, "dc_cobertura": {"id": "dc_cobertura", "nome": "Central de Cobertura", "curto": "Cobertura", "desc": "Posiciona-se mais recuado para ler a profundidade, cortar passes e dobrar os colegas.", "atributos": "Antecipação, Posicionamento, Concentração, Velocidade, Aceleração, Decisões"}, "dl_ala_completo": {"id": "dl_ala_completo", "nome": "Ala Completo", "curto": "Ala Completo", "desc": "Faz o corredor inteiro no 3-1-2: dá largura máxima ao ataque, cruza e recupera a defender.", "atributos": "Velocidade, Aceleração, Resistência, Índice de Trabalho, Cruzamento, Desarme"}, "dl_defensivo": {"id": "dl_defensivo", "nome": "Lateral Defensivo", "curto": "Lat. Defensivo", "desc": "Fecha o flanco e mantém o trio defensivo compacto no 3-1-2, arriscando pouco na subida.", "atributos": "Desarme, Marcação, Posicionamento, Antecipação, Força, Concentração"}, "dl_invertido": {"id": "dl_invertido", "nome": "Lateral Invertido (Interior)", "curto": "Lat. Invertido", "desc": "Em posse fecha por dentro ao lado do MC para dar superioridade no meio e lançar passes de rutura.", "atributos": "Passe, Visão de Jogo, Decisões, Primeiro Toque, Técnica, Antecipação"}, "dl_ofensivo": {"id": "dl_ofensivo", "nome": "Ala Ofensivo Projetado", "curto": "Ala Ofensivo", "desc": "Ataca constantemente a linha de fundo como um extremo extra no 3-1-2, procurando 1x1 e cruzamentos.", "atributos": "Aceleração, Velocidade, Drible, Cruzamento, Técnica, Sem Bola"}, "ml_extremo_puro": {"id": "ml_extremo_puro", "nome": "Extremo Clássico (Linha)", "curto": "Ext. Clássico", "desc": "Cola-se à linha lateral no 2-3-1, encara o defesa em velocidade e cruza para a área.", "atributos": "Cruzamento, Velocidade, Aceleração, Drible, Técnica, Agilidade"}, "ml_extremo_invertido": {"id": "ml_extremo_invertido", "nome": "Extremo Invertido (Diagonal)", "curto": "Ext. Invertido", "desc": "Parte da ala em diagonal para o centro no 2-3-1 para rematar à baliza ou atacar a área.", "atributos": "Drible, Finalização, Técnica, Aceleração, Compostura, Sem Bola"}, "ml_ala_equilibrado": {"id": "ml_ala_equilibrado", "nome": "Médio Ala Trabalhador", "curto": "Ala Equilibrado", "desc": "Fecha o corredor defensivo para ajudar a dupla de centrais do 2-3-1 e sai rápido na transição.", "atributos": "Resistência, Índice de Trabalho, Desarme, Posicionamento, Velocidade, Cruzamento"}, "ml_criativo_interior": {"id": "ml_criativo_interior", "nome": "Organizador Aberto (Meia-Ala)", "curto": "Org. Aberto", "desc": "Deriva da ala para entrelinhas para associar-se ao MC e meter passes de rutura.", "atributos": "Passe, Visão de Jogo, Decisões, Técnica, Primeiro Toque, Compostura"}, "mc_organizador": {"id": "mc_organizador", "nome": "Organizador de Jogo", "curto": "Organizador", "desc": "Cérebro do meio-campo: pede sempre a bola, dita o ritmo e descobre linhas de passe.", "atributos": "Passe, Visão de Jogo, Decisões, Primeiro Toque, Técnica, Compostura"}, "mc_trinco": {"id": "mc_trinco", "nome": "Trinco Posicional", "curto": "Trinco", "desc": "Ancora o meio-campo à frente da defesa, fecha linhas de passe e recupera bolas.", "atributos": "Posicionamento, Desarme, Antecipação, Marcação, Concentração, Força"}, "mc_box_to_box": {"id": "mc_box_to_box", "nome": "Box-to-Box (Todo-o-Terreno)", "curto": "Box-to-Box", "desc": "Percorre o campo de área a área: pressiona na recuperação e chega de trás para finalizar.", "atributos": "Resistência, Índice de Trabalho, Velocidade, Passe, Desarme, Sem Bola"}, "mc_ofensivo": {"id": "mc_ofensivo", "nome": "Médio Ofensivo (Criativo #10)", "curto": "Médio Ofensivo", "desc": "Joga adiantado no apoio aos avançados para rasgar a defesa com drible, último passe ou remate.", "atributos": "Visão de Jogo, Técnica, Passe, Drible, Decisões, Finalização"}, "mix_interior": {"id": "mix_interior", "nome": "Médio Interior (Mezzala)", "curto": "Mezzala", "desc": "Ataca os meios-espaços no 2-2-2, conduzindo a bola e ligando o meio-campo ao ataque.", "atributos": "Passe, Drible, Técnica, Primeiro Toque, Visão de Jogo, Aceleração"}, "mix_equilibrador": {"id": "mix_equilibrador", "nome": "Pivô Equilibrador", "curto": "Equilibrador", "desc": "Fecha o corredor central e protege os centrais no 2-2-2, garantindo equilíbrio e recuperação.", "atributos": "Posicionamento, Desarme, Antecipação, Índice de Trabalho, Resistência, Passe"}, "mix_ala_criativo": {"id": "mix_ala_criativo", "nome": "Médio Aberto Criativo", "curto": "Médio Aberto", "desc": "Abre na faixa lateral para dar largura ao 2-2-2, encarar no 1x1 e cruzar para a dupla da frente.", "atributos": "Cruzamento, Drible, Velocidade, Aceleração, Técnica, Visão de Jogo"}, "av_finalizador": {"id": "av_finalizador", "nome": "Ponta de Lança Fixo (Finalizador)", "curto": "Finalizador", "desc": "Fica na zona de finalização: letal ao primeiro toque, no jogo aéreo e dentro da área.", "atributos": "Finalização, Compostura, Cabeceamento, Primeiro Toque, Sem Bola, Força"}, "av_movel": {"id": "av_movel", "nome": "Avançado Móvel (Rutura)", "curto": "Av. Móvel", "desc": "Ataca constantemente a profundidade nas costas da defesa em velocidade.", "atributos": "Velocidade, Aceleração, Sem Bola, Finalização, Drible, Compostura"}, "av_falso9": {"id": "av_falso9", "nome": "Falso 9 (Segundo Avançado)", "curto": "Falso 9", "desc": "Recua para entrelinhas para ligar o jogo, arrastar defesas e isolar os colegas.", "atributos": "Passe, Visão de Jogo, Técnica, Drible, Primeiro Toque, Decisões, Finalização"}, "av_extremo_ataque": {"id": "av_extremo_ataque", "nome": "Avançado Interior / Extremo", "curto": "Av. Interior", "desc": "Cai nas faixas para encarar no 1x1, tirar cruzamentos ou fletir para rematar.", "atributos": "Drible, Aceleração, Velocidade, Técnica, Finalização, Cruzamento"}},socket,sala=new URLSearchParams(location.search).get('sala');
 const idJogador=(()=>{const novo=()=>window.crypto?.randomUUID?.()||'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&3|8)).toString(16)});try{let id=sessionStorage.getItem('acTravancaJogador');if(!id){id=novo();sessionStorage.setItem('acTravancaJogador',id)}return id}catch(e){return novo()}})();
 const show=id=>{document.querySelectorAll('.tela').forEach(e=>e.classList.toggle('on',e.id==id))};
 const api=async(u,b)=>{try{const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});const raw=await r.text();let d=null;try{d=raw?JSON.parse(raw):null}catch(e){}if(!r.ok)return {erro:d&&d.erro?d.erro:`O servidor devolveu erro HTTP ${r.status}.`};return d&&typeof d==='object'?d:{erro:'O servidor enviou uma resposta inválida.'}}catch(e){return {erro:'Não foi possível contactar o servidor. Confirma os logs do Render e tenta novamente.'}}};
@@ -107,7 +123,7 @@ aud.play().then(rot).catch(()=>{});
 aud.onerror=()=>{if(!aud.dataset.fb){aud.dataset.fb='1';aud.src='/static/musica.mp3';aud.load()}else{mb.textContent='♪ Ficheiro musica.mp3 não encontrado'}};
 mb.onclick=()=>{if(aud.paused){mudo=false;aud.play().then(rot).catch(()=>{})}else{mudo=true;aud.pause();rot()}if(cg)cg.gain.value=mudo?0:.8};
 const nome=()=>{const n=$('#nome').value.trim();if(n.length<2){$('#err').textContent='Escreve o teu nome para continuar (2 a 20 letras).';$('#nome').focus();return null}return n};
-fetch('/api/coord').then(r=>r.json()).then(d=>{CO=d.coord;FO=d.form;PO=d.posicoes});
+fetch('/api/coord').then(r=>r.json()).then(d=>{CO=d.coord;FO=d.form;PO=d.posicoes;if(d.funcoes)RO=d.funcoes;if(d.catalogo_funcoes)RC=d.catalogo_funcoes});
 if(sala)$('#bOff').style.display='none',$('#bOn').textContent='Entrar na sala';
 
 function cromos(of,fn){$('#cromos').innerHTML='';of.forEach((j,i)=>{const b=document.createElement('button');b.className='cromo';b.style.setProperty('--i',i);
@@ -132,20 +148,72 @@ function tatica(pl){G.pl=pl;const online=G.modo=='on',tipo=online?'Formação':'
 // ---------- LINHA (comum) ----------
 document.querySelectorAll('[data-lt]').forEach(b=>b.onclick=()=>linha(+b.dataset.lt));
 $('#mudarTat').onclick=()=>show('tatica');
-function linha(t){G.t=t;G.sl=Array(7).fill(null);G.sel=null;show('linha');
+function funcoesPadrao(t,antigas){
+ const posList=(PO&&PO[t])||['GR','D','D','MC','ML','ML','A'];
+ return posList.map((pos,i)=>{
+  const opcoes=(RO&&RO[pos])||[];
+  return antigas&&opcoes.includes(antigas[i])?antigas[i]:(opcoes[0]||'mc_organizador');
+ });
+}
+function linha(t){const manter=G.t===t?G.sl:null;G.t=t;G.sl=manter||Array(7).fill(null);G.fn=funcoesPadrao(t,G.fn);G.sel=null;show('linha');
  document.querySelectorAll('[data-lt]').forEach(b=>b.classList.toggle('sec',+b.dataset.lt!==t));
  const p=$('#pitch');p.innerHTML='';
-  CO[t].forEach(([x,y],i)=>{const b=document.createElement('button'),label=G.modo=='on'?PO[t][i]:'';b.className='slot'+(i==0?' gr':'');b.style.left=x*100+'%';b.style.top=y*100+'%';b.id='s'+i;b.innerHTML=`<b>${i+1}</b>${label?`<small>${label}</small>`:''}`;if(label)b.title=`Posição ${i+1}: ${label}`;
+ CO[t].forEach(([x,y],i)=>{const b=document.createElement('button'),label=G.modo=='on'?PO[t][i]:'';b.className='slot'+(i==0?' gr':'');b.style.left=x*100+'%';b.style.top=y*100+'%';b.id='s'+i;b.innerHTML=`<b>${i+1}</b>${label?`<small>${label}</small>`:''}`;if(label)b.title=`Posição ${i+1}: ${label}`;
   b.onclick=()=>{if(G.sl[i]!=null){G.sl[i]=null}else G.sel=i;desenha()};p.append(b)});desenha()}
-function desenha(){const usados=G.sl.filter(x=>x!=null);G.sl.forEach((v,i)=>{const b=$('#s'+i);b.classList.toggle('cheio',v!=null);b.style.outline=G.sel==i?'4px solid #fff':'';
-  const label=G.modo=='on'?PO[G.t][i]:'';b.innerHTML=v!=null?`${G.pl.find(j=>j.id==v).nome}${label?`<small>${label}</small>`:''}`:`<b>${i+1}</b>${label?`<small>${label}</small>`:''}`});
+function desenhaFuncoes(){
+ const box=$('#boxFuncoes'),lista=$('#listaFuncoes');
+ if(!box||!lista)return;
+ if(G.modo!='on'){box.classList.remove('on');return}
+ box.classList.add('on');
+ const posList=PO[G.t]||[];
+ G.fn=funcoesPadrao(G.t,G.fn);
+ lista.innerHTML='';
+ posList.forEach((pos,i)=>{
+  const jog=G.sl[i]!=null?G.pl.find(j=>j.id==G.sl[i]):null;
+  const opcoes=RO[pos]||[];
+  const atual=G.fn[i]||opcoes[0];
+  const info=RC[atual]||{nome:atual,curto:atual,desc:'',atributos:''};
+  const card=document.createElement('div');
+  card.className='role-card'+(jog?' filled':'');
+  const head=document.createElement('div');
+  head.className='role-head';
+  head.innerHTML=`<span><span class="pos-tag">${i+1} · ${pos}</span>${jog?`<b>${jog.nome}</b>`:`<span class="sub" style="font-size:14px">Escolhe o jogador no campo</span>`}</span>`;
+  const btns=document.createElement('div');
+  btns.className='role-btns';
+  opcoes.forEach(fid=>{
+   const rInfo=RC[fid]||{curto:fid,nome:fid};
+   const bt=document.createElement('button');
+   bt.type='button';
+   bt.className='role-btn'+(fid===atual?' ativo':'');
+   bt.textContent=rInfo.curto||rInfo.nome;
+   bt.title=rInfo.nome;
+   bt.onclick=()=>{G.fn[i]=fid;desenha()};
+   btns.append(bt);
+  });
+  const desc=document.createElement('div');
+  desc.className='role-desc';
+  desc.innerHTML=`<b style="color:var(--ouro)">${info.nome}:</b> ${info.desc}`;
+  const attr=document.createElement('div');
+  attr.className='role-attr';
+  attr.innerHTML=`<b>Foco:</b> ${info.atributos}`;
+  card.append(head,btns,desc,attr);
+  lista.append(card);
+ });
+}
+function desenha(){const usados=G.sl.filter(x=>x!=null);G.fn=funcoesPadrao(G.t,G.fn);
+ G.sl.forEach((v,i)=>{const b=$('#s'+i);b.classList.toggle('cheio',v!=null);b.style.outline=G.sel==i?'4px solid #fff':'';
+  const pos=G.modo=='on'?PO[G.t][i]:'',rCurto=(G.modo=='on'&&G.fn&&RC[G.fn[i]])?RC[G.fn[i]].curto:'';
+  const label=G.modo=='on'?(rCurto?`${pos} · ${rCurto}`:pos):'';
+  b.innerHTML=v!=null?`${G.pl.find(j=>j.id==v).nome}${label?`<small>${label}</small>`:''}`:`<b>${i+1}</b>${label?`<small>${label}</small>`:''}`});
  $('#banco').innerHTML='';G.pl.filter(j=>!usados.includes(j.id)).forEach(j=>{const b=document.createElement('button');b.className='sec';b.textContent=`${j.nome} (${j.pos})`;
   b.onclick=()=>{let s=G.sel;if(s==null)s=G.sl.indexOf(null);if(s<0)return;G.sl[s]=j.id;G.sel=null;desenha()};$('#banco').append(b)});
+ desenhaFuncoes();
+ $('#ok').textContent=G.modo=='on'?'Confirmar equipa e funções':'Confirmar equipa';
  $('#ok').disabled=G.sl.includes(null)}
 $('#auto').onclick=()=>{const R={G:'Guarda-redes',D:'Defesa',M:'Médio',A:'Avançado'};G.sl=Array(7).fill(null);const lv=[...G.pl];
  FO[G.t].forEach((r,i)=>{const k=lv.findIndex(j=>j.pos.includes(R[r]));if(k>=0)G.sl[i]=lv.splice(k,1)[0].id});
  FO[G.t].forEach((r,i)=>{if(G.sl[i]==null&&lv.length)G.sl[i]=lv.shift().id});desenha()};
-$('#ok').onclick=async()=>{if(G.modo=='on'){socket.emit('formacao',{tatica:G.t,linha:G.sl});return}
+$('#ok').onclick=async()=>{if(G.modo=='on'){socket.emit('formacao',{tatica:G.t,linha:G.sl,funcoes:G.fn});return}
  $('#ok').disabled=true;
  const r=await api('/api/offline/simular',{token:G.tk,tatica:G.t,linha:G.sl});
  if(r.erro){$('#ok').disabled=false;return alert(r.erro)}
@@ -418,13 +486,13 @@ function jogo(d){
  const corNota=n=>n>=7.5?'alta':n>=6.0?'media':'baixa';
  function fim(){vivo=false;if(rafId)cancelAnimationFrame(rafId);if(goalTimer)clearTimeout(goalTimer);$('#painelSim').style.display='none';$('#fim').style.display='block';
   clearInterval(bi);ng.gain.setTargetAtTime(0,AC.currentTime,1.5);const s=d.stats,L=[['Golos','golos'],['Posse (%)','posse_pct'],['Remates','rem'],['À baliza','bal'],['Defesas do GR','def_'],['Desarmes','des'],['Interceções','inte'],['Faltas','faltas'],['Cartões amarelos','amarelos'],['Cartões vermelhos','vermelhos'],['Foras de jogo','impedimentos'],['Cantos','cantos'],['Penáltis','penaltis'],['Lesões','lesoes'],['Cruzamentos','cruzamentos']];
-  $('#tacticSummary').innerHTML=E.map(q=>{const j=q.jog||[],pos=q.posicoes||PO[q.tat]||[];return `<div class="card"><h3>${q.nome} · Formação ${T[q.tat]}</h3><div class="row">${pos.map((r,i)=>`<span class="chip">${i+1}. ${j[i]} <small>${r}</small></span>`).join('')}</div></div>`}).join('');
+  $('#tacticSummary').innerHTML=E.map(q=>{const j=q.jog||[],pos=q.posicoes||PO[q.tat]||[],fn=q.funcoes_curtas||[];return `<div class="card"><h3>${q.nome} · Formação ${T[q.tat]}</h3><div class="row">${pos.map((r,i)=>`<span class="chip">${i+1}. ${j[i]} <small>${r}${fn[i]?` · ${fn[i]}`:''}</small></span>`).join('')}</div></div>`}).join('');
   $('#placar').textContent=`Resultado Final · ${E[0].nome} ${s[0].golos} - ${s[1].golos} ${E[1].nome}`;
   const mvp=s[0].mvp;
   $('#mvpBox').innerHTML=mvp?`<div class="mvp"><div><div style="color:var(--pal);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:1px">★ Homem do Jogo (MVP)</div><b>${mvp.nome}</b> <span style="color:var(--ceu)">(${mvp.equipa} · ${mvp.pos})</span><div style="margin-top:4px;font-size:15px;color:var(--gelo)">Destaques: ${mvp.resumo}</div></div><div><span class="nota alta" style="font-size:24px;padding:6px 14px">Nota ${mvp.nota.toFixed(1)}</span></div></div>`:'';
   $('#marcOn').innerHTML=[0,1].map(k=>{const m=s[k].marcadores||[];const linhas=m.length?m.map(g=>`<div style="margin:4px 0">⚽ <b>${g.nome}</b> <span style="color:var(--ouro)">${g.m}'</span>${g.ast?` <small style="color:var(--ceu)">(assist. ${g.ast})</small>`:''}</div>`).join(''):'<div class="sub">Sem golos marcados</div>';return `<div class="card"><h3>${E[k].nome} (${s[k].golos})</h3>${linhas}</div>`}).join('');
   const cr=s[0].cronica||[];$('#cronicaOn').innerHTML=cr.map(c=>`<div class="aviso"><b style="color:var(--ouro)">${c.parte}:</b> ${c.resumo}</div>`).join('');
-  $('#notasOn').innerHTML=[0,1].map(k=>{const nt=s[k].notas||[];return `<div class="card"><h3>${E[k].nome} · Formação ${T[E[k].tat]}</h3><table><tr><th>Jogador</th><th>Destaques</th><th>Nota</th></tr>`+nt.map(p=>{const isMvp=mvp&&mvp.nome==p.nome&&mvp.equipa==E[k].nome;return `<tr class="${isMvp?'eu':''}"><td><span class="pos-tag">${p.posicao||p.pos}</span>${p.nome}${isMvp?' ★':''}</td><td style="font-size:14px;opacity:.9">${p.resumo}</td><td><span class="nota ${corNota(p.nota)}">${p.nota.toFixed(1)}</span></td></tr>`}).join('')+`</table></div>`}).join('');
+  $('#notasOn').innerHTML=[0,1].map(k=>{const nt=s[k].notas||[];return `<div class="card"><h3>${E[k].nome} · Formação ${T[E[k].tat]}</h3><table><tr><th>Jogador / Função</th><th>Destaques</th><th>Nota</th></tr>`+nt.map(p=>{const isMvp=mvp&&mvp.nome==p.nome&&mvp.equipa==E[k].nome;return `<tr class="${isMvp?'eu':''}"><td><span class="pos-tag">${p.posicao||p.pos}</span>${p.nome}${isMvp?' ★':''}${p.funcao?`<br><small style="color:var(--pal);font-size:12px">${p.funcao}</small>`:''}</td><td style="font-size:14px;opacity:.9">${p.resumo}</td><td><span class="nota ${corNota(p.nota)}">${p.nota.toFixed(1)}</span></td></tr>`}).join('')+`</table></div>`}).join('');
   $('#est').innerHTML=`<tr><th>Estatística</th><th>${E[0].nome}</th><th>${E[1].nome}</th></tr>`+L.map(l=>`<tr><td>${l[0]}</td><td>${s[0][l[1]]}</td><td>${s[1][l[1]]}</td></tr>`).join('')+`<tr><td>Passes (completos/tentados)</td><td>${s[0].pc}/${s[0].pt}</td><td>${s[1].pc}/${s[1].pt}</td></tr>`;
   window.scrollTo({top:0,behavior:'smooth'})
  }
