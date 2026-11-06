@@ -2,7 +2,7 @@
 
 O motor offline continua em match_engine.py. Este motor usa os atributos do
 Excel ModoOnline, posicionamento contínuo em metros, funções táticas por jogador
-e uma bola com trajetória.
+e uma bola com trajetória (sem foras de jogo, adaptado a Futebol de 7).
 """
 import math
 import random
@@ -45,13 +45,6 @@ POSITION_NEEDS = {
 }
 
 # Catálogo detalhado de funções táticas:
-# - needs: pesos extra somados aos atributos-chave da função (sem anular os restantes atributos)
-# - advance / def_advance: deslocamento longitudinal em posse e sem posse
-# - width: ajuste de largura (>0 abre na ala, <0 fecha por dentro)
-# - pass_w, dribble_w, shot_w, cross_w: multiplicadores de decisão com bola
-# - through_bias: tendência adicional para procurar passes de rutura
-# - receive_pass_w, receive_through_w, receive_cross_w: tendência para receber cada tipo de bola
-# - intercept_bonus, duel_bonus: impacto defensivo na leitura de passe e no 1x1
 ROLE_DEFINITIONS = {
     # ---------- GUARDA-REDES (GR) ----------
     "gr_classico": {
@@ -437,7 +430,7 @@ class FootballManagerEngine:
     @staticmethod
     def _team_stats():
         return dict(golos=0, posse=0, rem=0, bal=0, def_=0, pc=0, pt=0, des=0, inte=0,
-                    faltas=0, amarelos=0, vermelhos=0, impedimentos=0, cantos=0,
+                    faltas=0, amarelos=0, vermelhos=0, cantos=0,
                     penaltis=0, lesoes=0, duelos=0, cruzamentos=0, perdas=0)
 
     def _player_stats(self, team, index):
@@ -483,7 +476,6 @@ class FootballManagerEngine:
             weights[attr] = weights.get(attr, 1.0) + priority * 1.35
         profile = sum(self._safe(p.a.get(attr, 50.0)) * weight for attr, weight in weights.items()) / sum(weights.values())
         role_focus = role_needs.get(key, 0)
-        # Se o atributo pedido é prioritário para a função escolhida, o perfil funcional pesa mais
         effective = raw * (0.68 if role_focus >= 4 else 0.74) + profile * (0.32 if role_focus >= 4 else 0.26)
         return effective * (1 - self.fadiga[team][index] * 0.30)
 
@@ -566,7 +558,6 @@ class FootballManagerEngine:
                     target_u += (ball_u - 0.5) * (0.20 if i else 0.04)
                     target_v += (ball_v - base_v) * (0.24 if position in MIDFIELD_POSITIONS | FORWARD_POSITIONS else 0.14)
                     if abs(base_v - 0.5) > 0.04:
-                        # width_shift > 0 aproxima da linha lateral; width_shift < 0 flete para o corredor central
                         side_sign = -1.0 if base_v < 0.5 else 1.0
                         target_v += side_sign * width_shift
                 else:
@@ -589,7 +580,7 @@ class FootballManagerEngine:
                 self.ball["x"], self.ball["y"], self.ball["z"] = self.players[team][index]["x"], self.players[team][index]["y"], 0.0
 
     def _event(self, minute, kind, text, team=None, carrier=None, receiver=None, defender=None,
-               start=None, end=None, winner=None, goal=False):
+               start=None, end=None, winner=None, goal=False, sub=None):
         team = self.pos if team is None else team
         carrier = self.c if carrier is None else carrier
         if 0 <= carrier < 7:
@@ -598,7 +589,7 @@ class FootballManagerEngine:
         start = start or {"x": self.ball["x"], "y": self.ball["y"], "z": self.ball["z"]}
         end = end or start
         self.ev.append({
-            "m": minute, "tipo": kind, "txt": text, "eq": team, "c": carrier,
+            "m": minute, "tipo": kind, "sub": sub or "", "txt": text, "eq": team, "c": carrier,
             "a": receiver, "d": defender, "z": self.z, "golo": goal,
             "placar": [self.stats[0]["golos"], self.stats[1]["golos"]],
             "ball": {"from": start, "to": end}, "winner": winner,
@@ -655,24 +646,6 @@ class FootballManagerEngine:
                 if best is None or score < best[0]:
                     best = (score, index, spot)
         return best
-
-    def _offside_line(self, defending_team, minute):
-        defenders = [i for i in range(7) if self._active(defending_team, i) and self.positions[defending_team][i] in DEFENDER_POSITIONS]
-        if not defenders:
-            return 0.24
-        line = sorted((self._u(defending_team, self.players[defending_team][i]["x"]) for i in defenders), reverse=True)
-        base_line = line[min(1, len(line) - 1)]
-        group_skill = sum((self._attr(defending_team, i, "decisoes") + self._attr(defending_team, i, "antecipacao")) / 2 for i in defenders) / len(defenders)
-        cover_count = sum(1 for i in defenders if self.roles[defending_team][i] == "dc_cobertura")
-        chance = self._clamp(0.18 + group_skill / 100 * 0.58 + cover_count * 0.05, 0.28, 0.82)
-        if random.random() < chance:
-            base_line += 0.035
-        return base_line
-
-    def _is_offside(self, team, receiver, ball_u):
-        u = self._u(team, self.players[team][receiver]["x"])
-        line = self._offside_line(1 - team, 0)
-        return ball_u > 0.48 and u > max(line, ball_u) + 0.015
 
     def _flight_time(self, start, end, team, passer, loft=0):
         distance = self._distance(start, end)
@@ -741,15 +714,7 @@ class FootballManagerEngine:
         end = {"x": self._clamp(tx + err_x * (1 if team == 0 else -1), 0.025, 0.975),
                "y": self._clamp(ty + err_y * (1 if team == 0 else -1), 0.035, 0.965),
                "z": 7.5 if cross or (through and random.random() < 0.18) else (2.0 if random.random() < 0.10 else 0.3)}
-        if (through or receiver_u > self._u(team, start["x"]) + 0.025) and self._is_offside(team, receiver, self._u(team, start["x"])):
-            self.stats[team]["impedimentos"] += 1
-            self.stats[team]["perdas"] += 1
-            self.stats[team]["pt"] += 1
-            self.pstats[team][carrier]["pt"] += 1
-            self.pstats[team][carrier]["perdas"] += 1
-            self._event(minute, "fora_de_jogo", f"Fora de jogo de {self.teams[team][receiver].nome}; a linha defensiva subiu em bloco.", team, carrier, receiver, None, start, end)
-            self._owner(1 - team, self._keeper(1 - team))
-            return
+        sub_pass = "cruzamento" if cross else ("rutura" if through else "curto")
         flight = self._flight_time(start, end, team, carrier, end["z"])
         self.ball.update(x=start["x"], y=start["y"], z=start["z"],
                          vx=(end["x"] - start["x"]) / flight, vy=(end["y"] - start["y"]) / flight,
@@ -762,7 +727,8 @@ class FootballManagerEngine:
             self.pstats[1 - team][defender]["recuperacoes"] += 1
             self.stats[team]["pt"] += 1
             self.pstats[team][carrier]["pt"] += 1
-            self._event(minute, "intercepta", f"{self.teams[1-team][defender].nome} corta a trajetória do passe de {passer_p.nome}.", team, carrier, None, defender, start, {"x": spot["x"], "y": spot["y"], "z": 0}, (1-team, defender))
+            self._event(minute, "intercepta", f"{self.teams[1-team][defender].nome} corta o passe de {passer_p.nome}.",
+                        team, carrier, receiver, defender, start, {"x": spot["x"], "y": spot["y"], "z": 0}, (1-team, defender), sub=sub_pass)
             self._owner(1 - team, defender, spot["x"], spot["y"])
             return
         preferred = (team, receiver)
@@ -776,8 +742,9 @@ class FootballManagerEngine:
             self.pstats[team][receiver]["pc"] += 1
             self.last_pass[team] = (minute, carrier, receiver)
             kind = "canto" if cross and set_piece else "passe"
-            label = "cruza" if cross else ("mete a bola nas costas da defesa para" if through else "joga para")
-            self._event(minute, kind, f"{passer_p.nome} {label} {self.teams[team][receiver].nome}.", team, carrier, receiver, None, start, end, (team, receiver))
+            label = "cruza" if cross else ("mete a bola em profundidade para" if through else "joga para")
+            self._event(minute, kind, f"{passer_p.nome} {label} {self.teams[team][receiver].nome}.",
+                        team, carrier, receiver, None, start, end, (team, receiver), sub=sub_pass)
             self._owner(team, receiver, end["x"], end["y"])
             return
         if winner_team == team:
@@ -785,7 +752,8 @@ class FootballManagerEngine:
             self.pstats[team][carrier]["pt"] += 1
             self.pstats[team][carrier]["perdas"] += 1
             self.stats[team]["perdas"] += 1
-            self._event(minute, "bola_livre", f"Passe de {passer_p.nome} sai da medida; a bola fica solta no espaço.", team, carrier, receiver, None, start, end, (team, winner_index))
+            self._event(minute, "bola_livre", f"Passe de {passer_p.nome} sai largo; {self.teams[team][winner_index].nome} recupera a bola solta.",
+                        team, carrier, receiver, None, start, end, (team, winner_index), sub="recuperada")
             self._owner(team, winner_index, end["x"], end["y"])
             self.pstats[team][winner_index]["recuperacoes"] += 1
         else:
@@ -796,7 +764,8 @@ class FootballManagerEngine:
             self.stats[1-team]["inte"] += 1
             self.pstats[1-team][winner_index]["inte"] += 1
             self.pstats[1-team][winner_index]["recuperacoes"] += 1
-            self._event(minute, "bola_livre", f"Bola no espaço: {self.teams[team][receiver].nome} e {self.teams[1-team][winner_index].nome} arrancam para a disputa.", team, carrier, receiver, winner_index, start, end, (1-team, winner_index))
+            self._event(minute, "bola_livre", f"Bola disputada entre {self.teams[team][receiver].nome} e {self.teams[1-team][winner_index].nome}.",
+                        team, carrier, receiver, winner_index, start, end, (1-team, winner_index), sub="disputa")
             self._owner(1-team, winner_index, end["x"], end["y"])
 
     def _tick(self, minute):
@@ -851,14 +820,19 @@ class FootballManagerEngine:
             win = random.random() < self._prob(0.49 + (attack - defend) / 115 - pressure_mod * pressure / 110)
             self.stats[team]["duelos"] += 1
             self.stats[1-team]["duelos"] += 1
+            start_pos = {"x": self.players[team][carrier]["x"], "y": self.players[team][carrier]["y"], "z": 0.0}
             if win:
                 P["dri"] += 1
-                self._event(minute, "drible", f"{p.nome} ultrapassa {d.nome} com um drible.", team, carrier, None, defender)
-                local_u, local_v = self._local(team, self.players[team][carrier]["x"], self.players[team][carrier]["y"])
-                local_u = min(0.97, local_u + 0.038)
+                local_u, local_v = self._local(team, start_pos["x"], start_pos["y"])
+                local_u = min(0.96, local_u + 0.048)
                 if role["id"] in {"ml_extremo_invertido", "dl_invertido", "av_extremo_ataque"}:
-                    local_v += (0.5 - local_v) * 0.18
+                    local_v = self._clamp(local_v + (0.5 - local_v) * 0.22, 0.06, 0.94)
+                else:
+                    local_v = self._clamp(local_v + (-0.03 if local_v < 0.5 else 0.03), 0.05, 0.95)
                 x, y = self._world(team, local_u, local_v)
+                end_pos = {"x": x, "y": y, "z": 0.0}
+                self._event(minute, "drible", f"{p.nome} ultrapassa {d.nome} com um drible.",
+                            team, carrier, None, defender, start_pos, end_pos, (team, carrier), sub="1x1")
                 self._owner(team, carrier, x, y)
             else:
                 foul_chance = 0.045 + self._attr(1-team, defender, "agressividade") / 680 + pressure_mod * 0.055
@@ -871,8 +845,12 @@ class FootballManagerEngine:
                     self.pstats[1-team][defender]["des"] += 1
                     self.pstats[1-team][defender]["recuperacoes"] += 1
                     self.stats[team]["perdas"] += 1
-                    self._event(minute, "desarme", f"{d.nome} desarma {p.nome}.", team, carrier, None, defender)
-                    self._owner(1-team, defender)
+                    def_x = self._clamp(start_pos["x"] + (0.018 if team == 1 else -0.018), 0.03, 0.97)
+                    def_y = self._clamp(start_pos["y"] + random.uniform(-0.015, 0.015), 0.04, 0.96)
+                    end_pos = {"x": def_x, "y": def_y, "z": 0.0}
+                    self._event(minute, "desarme", f"{d.nome} desarma {p.nome}.",
+                                team, carrier, None, defender, start_pos, end_pos, (1-team, defender), sub="limpo")
+                    self._owner(1-team, defender, def_x, def_y)
         else:
             self._shot(minute)
 
@@ -922,11 +900,12 @@ class FootballManagerEngine:
         on_target = random.random() < on_target_chance
         scored = on_target and random.random() < goal_chance
         start = {"x": self.ball["x"], "y": self.ball["y"], "z": 0.0}
-        goal_y = self._clamp(0.5 + random.gauss(0, 0.12 + distance / 160), 0.12, 0.88)
-        gx, gy = self._world(team, 1.0, goal_y)
+        goal_y = self._clamp(0.5 + random.gauss(0, 0.08 + distance / 220), 0.38, 0.62)
+        gx, gy = self._world(team, 0.995 if scored else 0.965, goal_y)
         if not on_target:
-            gx, gy = self._world(team, 1.0, self._clamp(goal_y + random.choice((-1, 1)) * random.uniform(0.10, 0.34), 0.02, 0.98))
-        end = {"x": gx, "y": gy, "z": random.uniform(0.1, 1.8)}
+            miss_y = self._clamp(0.5 + random.choice((-1, 1)) * random.uniform(0.16, 0.34), 0.04, 0.96)
+            gx, gy = self._world(team, 1.015, miss_y)
+        end = {"x": gx, "y": gy, "z": random.uniform(0.2, 1.8)}
         flight = self._flight_time(start, end, team, shooter, end["z"])
         self.ball.update(x=start["x"], y=start["y"], z=start["z"],
                          vx=(end["x"] - start["x"]) / flight, vy=(end["y"] - start["y"]) / flight,
@@ -935,6 +914,7 @@ class FootballManagerEngine:
         P = self.pstats[team][shooter]
         S["rem"] += 1
         P["rem"] += 1
+        sub_shot = "penalti" if penalty else ("livre" if set_piece else "jogo")
         if penalty:
             S["penaltis"] += 1
         if on_target:
@@ -950,22 +930,32 @@ class FootballManagerEngine:
                 self.pstats[team][last[1]]["ast"] += 1
                 ast = self.teams[team][last[1]].nome
             self.markers[team].append(dict(nome=shot_player.nome, m=minute, ast=ast))
-            self._event(minute, "golo", f"GOLO! {shot_player.nome} marca{' de penálti' if penalty else ''}!", team, shooter, None, defender, start, end, None, True)
+            self._event(minute, "golo", f"GOLO! {shot_player.nome} marca{' de penálti' if penalty else ''}!",
+                        team, shooter, None, defender, start, end, None, True, sub=sub_shot)
             self._owner(1-team, self._kickoff_player(1-team))
             return
         if on_target:
             self.stats[1-team]["def_"] += 1
             self.pstats[1-team][gk]["def_"] += 1
-            self._event(minute, "defesa", f"{self.teams[1-team][gk].nome} defende o remate de {shot_player.nome}.", team, shooter, None, gk, start, end)
-            if random.random() < 0.22:
-                _, winner_team, winner = self._race(end)
-                self._event(minute, "bola_livre", "A defesa larga a bola; começa uma corrida à recarga.", team, shooter, None, gk, end, end, (winner_team, winner))
-                self._owner(winner_team, winner, end["x"], end["y"])
+            rebound = random.random() < 0.22
+            self._event(minute, "defesa", f"{self.teams[1-team][gk].nome} defende o remate de {shot_player.nome}.",
+                        team, shooter, None, gk, start, end, (1-team, gk), sub="desvia" if rebound else "agarra")
+            if rebound:
+                reb_u = self._clamp(0.86 - random.uniform(0.02, 0.08), 0.75, 0.90)
+                reb_v = self._clamp(goal_y + random.choice((-1, 1)) * random.uniform(0.08, 0.20), 0.16, 0.84)
+                rx, ry = self._world(team, reb_u, reb_v)
+                reb_end = {"x": rx, "y": ry, "z": 0.3}
+                _, winner_team, winner = self._race(reb_end)
+                self._event(minute, "bola_livre", "A defesa larga a bola; corrida à recarga na área.",
+                            team, shooter, None, gk, end, reb_end, (winner_team, winner), sub="recarga")
+                self._owner(winner_team, winner, reb_end["x"], reb_end["y"])
             else:
                 self._owner(1-team, gk, end["x"], end["y"])
             return
-        self._event(minute, "remate", f"{shot_player.nome} remata, mas a bola sai ao lado.", team, shooter, None, defender, start, end)
-        if random.random() < 0.28:
+        is_corner = random.random() < 0.28
+        self._event(minute, "remate", f"{shot_player.nome} remata ao lado.",
+                    team, shooter, None, defender, start, end, sub="canto" if is_corner else "fora")
+        if is_corner:
             self._corner(minute, team)
         else:
             self._owner(1-team, self._keeper(1-team))
@@ -976,7 +966,12 @@ class FootballManagerEngine:
         S["faltas"] += 1
         self.pstats[defending_team][defender]["faltas"] += 1
         start = {"x": self.ball["x"], "y": self.ball["y"], "z": 0.0}
-        self._event(minute, "falta", f"Falta de {self.teams[defending_team][defender].nome} sobre {self.teams[attacking_team][attacker].nome}.", attacking_team, attacker, None, defender)
+        x, y = self.players[defending_team][defender]["x"], self.players[defending_team][defender]["y"]
+        local_u = self._u(attacking_team, x)
+        local_v = y if attacking_team == 0 else 1 - y
+        in_box = local_u >= 0.84 and abs(local_v - 0.5) <= 0.22
+        self._event(minute, "falta", f"Falta de {self.teams[defending_team][defender].nome} sobre {self.teams[attacking_team][attacker].nome}.",
+                    attacking_team, attacker, None, defender, start, start, sub="penalti" if in_box else "livre")
         player_stat = self.pstats[defending_team][defender]
         aggression = self._attr(defending_team, defender, "agressividade")
         yellow_chance = 0.10 + aggression / 520 + (0.16 if player_stat["amarelos"] else 0)
@@ -987,26 +982,26 @@ class FootballManagerEngine:
             player_stat["vermelhos"] += 1
             S["vermelhos"] += 1
             self.players[defending_team][defender]["ativo"] = False
-            self._event(minute, "vermelho", f"Segundo amarelo e expulsão para {self.teams[defending_team][defender].nome}.", attacking_team, attacker, None, defender)
+            self._event(minute, "vermelho", f"Segundo amarelo e expulsão para {self.teams[defending_team][defender].nome}.",
+                        attacking_team, attacker, None, defender, start, start, sub="segundo_amarelo")
         elif random.random() < red_chance:
             player_stat["vermelhos"] += 1
             S["vermelhos"] += 1
             self.players[defending_team][defender]["ativo"] = False
-            self._event(minute, "vermelho", f"Cartão vermelho direto para {self.teams[defending_team][defender].nome}.", attacking_team, attacker, None, defender)
+            self._event(minute, "vermelho", f"Cartão vermelho direto para {self.teams[defending_team][defender].nome}.",
+                        attacking_team, attacker, None, defender, start, start, sub="direto")
         elif random.random() < yellow_chance:
             player_stat["amarelos"] += 1
             S["amarelos"] += 1
-            self._event(minute, "amarelo", f"Cartão amarelo para {self.teams[defending_team][defender].nome}.", attacking_team, attacker, None, defender)
+            self._event(minute, "amarelo", f"Cartão amarelo para {self.teams[defending_team][defender].nome}.",
+                        attacking_team, attacker, None, defender, start, start)
         stamina = self._attr(defending_team, defender, "resistencia")
         if random.random() < 0.003 + max(0, 70 - stamina) / 4000:
             player_stat["lesao"] = 1
             S["lesoes"] += 1
             self.players[defending_team][defender]["ativo"] = False
-            self._event(minute, "lesao", f"{self.teams[defending_team][defender].nome} lesiona-se no lance e não pode continuar.", attacking_team, attacker, None, defender)
-        x, y = self.players[defending_team][defender]["x"], self.players[defending_team][defender]["y"]
-        local_u = self._u(attacking_team, x)
-        local_v = y if attacking_team == 0 else 1 - y
-        in_box = local_u >= 0.84 and abs(local_v - 0.5) <= 0.22
+            self._event(minute, "lesao", f"{self.teams[defending_team][defender].nome} lesiona-se no lance e não pode continuar.",
+                        attacking_team, attacker, None, defender, start, start)
         if in_box:
             self._penalty(minute, attacking_team)
         else:
@@ -1034,8 +1029,10 @@ class FootballManagerEngine:
         self.players[team][taker]["x"], self.players[team][taker]["y"] = start["x"], start["y"]
         self._owner(team, taker, start["x"], start["y"])
         distance = (1 - local_u) * self.FIELD_X
-        self._event(minute, "livre", f"Livre para {self.teams[team][taker].nome}; a equipa prepara a bola parada.", team, taker, None, None, start, start)
-        if distance < 33 and abs((self.players[team][taker]["y"] if team == 0 else 1-self.players[team][taker]["y"]) - 0.5) < 0.31:
+        direct = distance < 33 and abs((self.players[team][taker]["y"] if team == 0 else 1-self.players[team][taker]["y"]) - 0.5) < 0.31
+        self._event(minute, "livre", f"Livre para {self.teams[team][taker].nome}; a equipa prepara a bola parada.",
+                    team, taker, None, None, start, start, sub="direto" if direct else "cruzado")
+        if direct:
             self._shot(minute, set_piece=True, taker=taker, label="livre")
         else:
             self._pass(minute, cross=True, set_piece=True)
@@ -1046,7 +1043,9 @@ class FootballManagerEngine:
         spot_x, spot_y = self._world(team, 0.89, 0.5)
         self.players[team][taker]["x"], self.players[team][taker]["y"] = spot_x, spot_y
         self._owner(team, taker, spot_x, spot_y)
-        self._event(minute, "penalti", f"Grande penalidade para {self.names[team]}: {self.teams[team][taker].nome} na marca dos onze metros.", team, taker)
+        spot = {"x": spot_x, "y": spot_y, "z": 0.0}
+        self._event(minute, "penalti", f"Grande penalidade para {self.names[team]}: {self.teams[team][taker].nome} na marca dos onze metros.",
+                    team, taker, None, None, spot, spot)
         self._shot(minute, penalty=True, taker=taker)
 
     def _corner(self, minute, team):
@@ -1057,7 +1056,9 @@ class FootballManagerEngine:
         x, y = self._world(team, 0.96, local_y)
         self.players[team][taker]["x"], self.players[team][taker]["y"] = x, y
         self._owner(team, taker, x, y)
-        self._event(minute, "canto", f"Pontapé de canto para {self.names[team]}, batido por {self.teams[team][taker].nome}.", team, taker)
+        spot = {"x": x, "y": y, "z": 0.0}
+        self._event(minute, "canto", f"Pontapé de canto para {self.names[team]}, batido por {self.teams[team][taker].nome}.",
+                    team, taker, None, None, spot, spot)
         self._pass(minute, cross=True, set_piece=True)
 
     def _tick_to_restart(self, minute, team):
@@ -1105,33 +1106,30 @@ class FootballManagerEngine:
             goals = [0, 0]
             yellows = [0, 0]
             reds = [0, 0]
-            offsides = [0, 0]
             for e in self.ev:
                 if not start <= e["m"] <= end:
                     continue
                 if e["tipo"] == "golo": goals[e["eq"]] += 1
                 elif e["tipo"] == "amarelo": yellows[1-e["eq"]] += 1
                 elif e["tipo"] == "vermelho": reds[1-e["eq"]] += 1
-                elif e["tipo"] == "fora_de_jogo": offsides[1-e["eq"]] += 1
             score = [sum(1 for e in self.ev if e["tipo"] == "golo" and e["eq"] == k and e["m"] <= end) for k in range(2)]
             detail = []
             if sum(yellows): detail.append(f"{sum(yellows)} cartões amarelos")
             if sum(reds): detail.append(f"{sum(reds)} expulsões")
-            if sum(offsides): detail.append(f"{sum(offsides)} foras de jogo após subidas da linha")
             if title == "1ª Parte":
                 summary = f"Ao intervalo, {self.names[0]} e {self.names[1]} estão {score[0]}-{score[1]}."
             else:
-                summary = f"O encontro termina {score[0]}-{score[1]} após uma segunda parte de duelos e transições."
+                summary = f"O encontro termina {score[0]}-{score[1]} após uma segunda parte intensa de duelos e transições."
             parts.append(dict(parte=title, resumo=summary + (" " + "; ".join(detail) + "." if detail else "")))
         return parts
 
     def jogar(self):
-        self._event(0, "apito", "Apita o árbitro: começa o jogo!", self.pos, self.c)
+        self._event(0, "apito", "Apita o árbitro: começa o jogo!", self.pos, self.c, sub="inicio")
         for minute in range(1, self.MIN + 1):
             for _ in range(self.TICKS):
                 self._tick(minute)
             if minute == self.MIN // 2:
-                self._event(minute, "apito", "Intervalo.", self.pos, self.c)
+                self._event(minute, "apito", "Intervalo.", self.pos, self.c, sub="intervalo")
                 self._tick_to_restart(minute, random.randint(0, 1))
-        self._event(self.MIN, "apito", "Fim do jogo!", self.pos, self.c)
+        self._event(self.MIN, "apito", "Fim do jogo!", self.pos, self.c, sub="fim")
         return self._finish()
